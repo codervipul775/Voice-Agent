@@ -1,0 +1,83 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+.venv
+pip-log.txt
+pip-delete-this-directory.txt
+.pytest_cache/
+.coverage
+htmlcov/
+*.egg-info/
+dist/
+build/
+
+# Node
+node_modules/
+.next/
+out/
+dist/
+build/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+.env.production
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+logs/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+coverage/
+.nyc_output/
+
+# Deployment
+.vercel
+.netlify
+
+# Audio files (testing)
+*.wav
+*.mp3
+*.ogg
+test_audio/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Documentation (keeping only README.md)
+AUDIO_FIX.md
+NEXT_STEPS.md
+PROGRESS.md
+PROJECT_PLAN.md
+QUICKSTART.md
+START_HERE.md
