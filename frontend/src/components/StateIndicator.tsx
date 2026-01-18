@@ -1,57 +1,77 @@
-'use client'
+import { VoiceState } from '@/store/voiceStore'
 
 interface StateIndicatorProps {
-  state: 'idle' | 'listening' | 'thinking' | 'speaking' | 'error'
-  isRecording?: boolean
+  state: VoiceState
+  isRecording: boolean
 }
 
 export default function StateIndicator({ state, isRecording }: StateIndicatorProps) {
-  // Override state display based on actual recording status
-  const displayState = state === 'listening' && !isRecording ? 'idle' : state
-  
-  const stateConfig = {
-    idle: {
-      text: '💤 Idle',
-      color: 'bg-gray-500',
-      description: 'Click the microphone to start'
-    },
-    listening: {
-      text: '🎤 Listening...',
-      color: 'bg-green-500',
-      description: "I'm listening to you"
-    },
-    thinking: {
-      text: '🤔 Thinking...',
-      color: 'bg-yellow-500',
-      description: 'Processing your request'
-    },
-    speaking: {
-      text: '🔊 Speaking...',
-      color: 'bg-blue-500',
-      description: 'AI is responding'
-    },
-    error: {
-      text: '❌ Error',
-      color: 'bg-red-500',
-      description: 'Something went wrong'
+
+  const getStatusConfig = () => {
+    switch (state) {
+      case 'listening':
+        return {
+          text: isRecording ? 'Listening' : 'Ready',
+          color: 'bg-emerald-500',
+          pulse: true,
+          icon: '👂'
+        }
+      case 'thinking':
+        return {
+          text: 'Thinking',
+          color: 'bg-indigo-500',
+          pulse: true,
+          icon: '🧠'
+        }
+      case 'speaking':
+        return {
+          text: 'Speaking',
+          color: 'bg-sky-500',
+          pulse: true,
+          icon: '🗣️'
+        }
+      case 'error':
+        return {
+          text: 'Error',
+          color: 'bg-rose-500',
+          pulse: false,
+          icon: '⚠️'
+        }
+      default:
+        return {
+          text: 'Idle',
+          color: 'bg-slate-500',
+          pulse: false,
+          icon: '💤'
+        }
     }
   }
 
-  const config = stateConfig[displayState]
+  const config = getStatusConfig()
 
   return (
-    <div className="text-center">
-      <div className={`inline-flex items-center gap-3 px-6 py-3 rounded-full ${config.color} text-white shadow-lg`}>
-        <span className="text-xl font-semibold">{config.text}</span>
-        {displayState !== 'idle' && displayState !== 'error' && (
-          <div className="flex gap-1">
-            <div className="w-2 h-2 bg-white rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-            <div className="w-2 h-2 bg-white rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-            <div className="w-2 h-2 bg-white rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
-          </div>
-        )}
+    <div className="flex items-center justify-center">
+      <div className={`
+        px-4 py-2 rounded-full
+        bg-opacity-20 backdrop-blur-md border border-white/10
+        flex items-center gap-3
+        transition-all duration-300
+        ${config.color.replace('bg-', 'bg-opacity-10 bg-')}
+      `}>
+        <div className={`
+          relative w-3 h-3 rounded-full ${config.color}
+          ${config.pulse ? 'animate-pulse' : ''}
+          shadow-[0_0_10px_currentColor]
+        `}>
+          {config.pulse && (
+            <div className={`absolute inset-0 rounded-full ${config.color} animate-ping opacity-75`} />
+          )}
+        </div>
+
+        <span className="text-sm font-medium tracking-wide uppercase text-white/90">
+          {config.text}
+        </span>
       </div>
-      <p className="text-gray-400 text-sm mt-2">{config.description}</p>
     </div>
   )
 }

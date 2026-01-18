@@ -33,9 +33,19 @@ class DeepgramSTTService:
                 logger.info(f"Audio header: {header.hex()}")
             
             async with httpx.AsyncClient(timeout=30.0) as client:
+                # Auto-detect format based on header
+                content_type = "audio/webm"  # Default
+                if len(audio_bytes) > 4:
+                    if audio_bytes[:4] == b'RIFF':
+                        content_type = "audio/wav"
+                    elif audio_bytes[:4] == b'\x1a\x45\xdf\xa3':
+                        content_type = "audio/webm"
+                
+                logger.info(f"Detected content-type: {content_type}")
+                
                 headers = {
                     "Authorization": f"Token {self.api_key}",
-                    "Content-Type": "audio/webm"
+                    "Content-Type": content_type
                 }
                 
                 params = {

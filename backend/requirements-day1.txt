@@ -18,5 +18,11 @@ python-dotenv==1.0.0
 pydantic>=2.0,<3.0
 pydantic-settings>=2.0,<3.0
 
-# For Day 1, we'll use simple audio processing
-# No scipy/numpy needed yet!
+# Day 2 - Audio Processing (Noise Suppression)
+noisereduce>=3.0.0
+soundfile>=0.13.0
+scipy>=1.0.0
+numpy>=1.20.0
+
+# Day 2 - Voice Activity Detection
+webrtcvad>=2.0.10

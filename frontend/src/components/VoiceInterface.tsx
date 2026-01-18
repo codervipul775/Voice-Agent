@@ -1,31 +1,31 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Mic, MicOff, Activity } from 'lucide-react'
+import { Mic, MicOff, Settings, Zap, MoreVertical, Menu, X } from 'lucide-react'
 import { useVoiceStore } from '@/store/voiceStore'
-import { useWebSocket } from '@/hooks/useWebSocket'
 import { useAudioRecorder } from '@/hooks/useAudioRecorder'
 import { useAudioPlayer } from '@/hooks/useAudioPlayer'
-import StateIndicator from './StateIndicator'
+import AgentAvatar from './AgentAvatar'
 import LiveCaptions from './LiveCaptions'
-import AudioVisualizer from './AudioVisualizer'
+import AudioStats from './AudioStats'
+import SettingsModal from './SettingsModal'
 
 export default function VoiceInterface() {
-  const { state, isConnected, connect, disconnect, setAudioCallback } = useVoiceStore()
-  const { isRecording, startRecording, stopRecording, audioLevel } = useAudioRecorder()
-  const { isPlaying, queueAudio } = useAudioPlayer()
+  const { state, isConnected, connect, vadStatus, setAudioCallback } = useVoiceStore()
+  const { isRecording, startRecording, stopRecording, audioLevel, vadMode, toggleVadMode, cleanup } = useAudioRecorder()
+  const { queueAudio } = useAudioPlayer()
   const [sessionId, setSessionId] = useState<string>('')
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true) // For mobile toggling
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false)
 
   useEffect(() => {
-    // Generate session ID
     setSessionId(crypto.randomUUID())
+    return () => cleanup()
   }, [])
 
-  // Set up audio playback callback (only once on mount)
   useEffect(() => {
     setAudioCallback((audioDataBase64: string) => {
       try {
-        // Decode base64 to ArrayBuffer
         const binaryString = atob(audioDataBase64)
         const bytes = new Uint8Array(binaryString.length)
         for (let i = 0; i < binaryString.length; i++) {
@@ -36,133 +36,154 @@ export default function VoiceInterface() {
         console.error('Error decoding audio:', error)
       }
     })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []) // Only run once on mount
+  }, [])
 
   const handleToggleConnection = async () => {
     if (!isConnected) {
-      // First time: connect WebSocket
       await connect(sessionId)
     } else if (isRecording) {
-      // Stop recording and send audio
       stopRecording()
     } else {
-      // Start next recording
       startRecording()
     }
   }
 
+  // Dynamic button styles
+  const micButtonColor = isRecording
+    ? vadStatus.is_speech
+      ? 'bg-emerald-500 shadow-[0_0_40px_rgba(16,185,129,0.4)]'
+      : 'bg-rose-500 shadow-[0_0_30px_rgba(244,63,94,0.4)]'
+    : 'bg-slate-700 hover:bg-cyan-500 shadow-lg'
+
   return (
-    <div className="container mx-auto px-4 py-8 max-w-6xl">
-      {/* Header */}
-      <div className="text-center mb-8">
-        <h1 className="text-4xl font-bold text-white mb-2">
-          🎙️ Voice Assistant
-        </h1>
-        <p className="text-gray-300">
-          Production-ready, low-latency AI voice conversations
-        </p>
-      </div>
+    <div className="h-screen w-full flex overflow-hidden relative font-sans text-slate-200">
 
-      {/* Main Interface */}
-      <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-8 shadow-2xl border border-white/20">
-        {/* State Indicator */}
-        <div className="mb-6">
-          <StateIndicator state={state} isRecording={isRecording} />
-        </div>
+      {/* LEFT PANEL - THE STAGE (70%) */}
+      <div className="flex-1 flex flex-col relative z-10 transition-all duration-300">
 
-        {/* Audio Visualizer */}
-        <div className="mb-6">
-          <AudioVisualizer 
-            audioLevel={audioLevel} 
-            isActive={isRecording}
-            state={state}
-          />
-        </div>
+        {/* Header */}
+        <header className="p-6 flex justify-between items-center z-20">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center shadow-lg shadow-cyan-500/20">
+              <Zap className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <h1 className="font-bold text-lg tracking-tight text-white">Voice<span className="text-cyan-400">OS</span></h1>
+              <div className="flex items-center gap-2 text-[10px] uppercase font-bold tracking-wider text-slate-500">
+                <span className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-emerald-500 animate-pulse' : 'bg-slate-600'}`} />
+                {isConnected ? 'System Online' : 'Offline'}
+              </div>
+            </div>
+          </div>
 
-        {/* Control Button */}
-        <div className="flex justify-center mb-6">
-          <button
-            onClick={handleToggleConnection}
-            className={`
-              relative group
-              w-32 h-32 rounded-full
-              flex items-center justify-center
-              transition-all duration-300 transform
-              ${isRecording 
-                ? 'bg-red-500 hover:bg-red-600 hover:scale-110' 
-                : state === 'speaking' || state === 'thinking'
-                ? 'bg-gray-500 cursor-not-allowed'
-                : 'bg-blue-500 hover:bg-blue-600 hover:scale-110'
-              }
-              shadow-lg hover:shadow-2xl
-              ${isRecording ? 'animate-pulse' : ''}
-            `}
-            disabled={state === 'speaking' || state === 'thinking'}
-          >
-            {isRecording ? (
-              <Mic className="w-12 h-12 text-white" />
-            ) : (
-              <MicOff className="w-12 h-12 text-white" />
-            )}
-            
-            {/* Ripple effect when active */}
-            {isRecording && (
-              <span className="absolute inset-0 rounded-full bg-blue-400 animate-ping opacity-75"></span>
-            )}
+          {/* Mobile Sidebar Toggle */}
+          <button className="md:hidden p-2 text-slate-400 hover:text-white" onClick={() => setIsSidebarOpen(!isSidebarOpen)}>
+            {isSidebarOpen ? <X /> : <Menu />}
           </button>
-        </div>
+        </header>
 
-        <div className="text-center mb-6">
-          <p className="text-white text-sm">
-            {!isConnected ? 'Click microphone to start' : 
-             isRecording ? 'Click to stop and send' : 
-             state === 'speaking' ? 'AI is speaking...' :
-             state === 'thinking' ? 'Processing...' :
-             'Click to ask another question'}
-          </p>
-        </div>
+        {/* Main Agent Area */}
+        <main className="flex-1 flex flex-col items-center justify-center relative">
 
-        {/* Connection Status */}
-        <div className="flex items-center justify-center gap-2 mb-6">
-          <div className={`w-3 h-3 rounded-full ${isConnected ? 'bg-green-500 animate-pulse' : 'bg-gray-500'}`}></div>
-          <span className="text-sm text-gray-300">
-            {isConnected ? 'Connected' : 'Disconnected'}
-          </span>
-        </div>
+          {/* Ambient Background Glow */}
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-cyan-500/5 blur-[120px] rounded-full pointer-events-none" />
 
-        {/* Live Captions */}
-        {isConnected && (
-          <LiveCaptions />
-        )}
-
-        {/* Stats (Optional) */}
-        <div className="mt-6 grid grid-cols-3 gap-4 text-center">
-          <div className="bg-white/5 rounded-lg p-3">
-            <div className="text-2xl font-bold text-white">
-              {state === 'listening' ? '🎤' : state === 'thinking' ? '🤔' : state === 'speaking' ? '🔊' : '💤'}
-            </div>
-            <div className="text-xs text-gray-400 mt-1">Status</div>
+          {/* Avatar */}
+          <div className="mb-12">
+            <AgentAvatar state={state} audioLevel={audioLevel} />
           </div>
-          <div className="bg-white/5 rounded-lg p-3">
-            <div className="text-2xl font-bold text-white">
-              {Math.round(audioLevel * 100)}%
-            </div>
-            <div className="text-xs text-gray-400 mt-1">Audio Level</div>
+
+          {/* Status Status Text */}
+          <div className="text-center h-8">
+            <span className={`
+                 inline-block px-4 py-1 rounded-full text-sm font-medium tracking-wide
+                 backdrop-blur-md border border-white/5
+                 ${state === 'listening' ? 'text-emerald-400 bg-emerald-500/10' :
+                state === 'thinking' ? 'text-indigo-400 bg-indigo-500/10' :
+                  state === 'speaking' ? 'text-cyan-400 bg-cyan-500/10' : 'text-slate-500'}
+               `}>
+              {state === 'idle' ? 'Ready to connect' :
+                state === 'listening' ? (vadStatus.is_speech ? 'Listening...' : 'Listening (Silence)') :
+                  state.charAt(0).toUpperCase() + state.slice(1)}
+            </span>
           </div>
-          <div className="bg-white/5 rounded-lg p-3">
-            <div className="text-2xl font-bold text-white">
-              {sessionId.split('-')[0]}
-            </div>
-            <div className="text-xs text-gray-400 mt-1">Session</div>
+
+        </main>
+
+        {/* Bottom Control Bar */}
+        <div className="p-8 flex justify-center pb-12">
+          <div className="glass-panel rounded-full p-2 pl-6 pr-2 flex items-center gap-6 shadow-2xl shadow-black/50">
+
+            {/* Mode Toggle (Text) */}
+            {isConnected && (
+              <button
+                onClick={toggleVadMode}
+                className="text-xs font-bold uppercase tracking-wider text-slate-400 hover:text-white transition-colors flex flex-col items-start"
+              >
+                <span className="text-[10px] opacity-50">Mode</span>
+                <span className={vadMode ? "text-cyan-400" : "text-white"}>{vadMode ? 'Auto (VAD)' : 'Push to Talk'}</span>
+              </button>
+            )}
+
+            {/* Divider */}
+            <div className="w-px h-8 bg-white/10" />
+
+            {/* Mic Button (Hero) */}
+            <button
+              onClick={handleToggleConnection}
+              disabled={state === 'thinking' || state === 'speaking'}
+              className={`
+                     w-14 h-14 rounded-full flex items-center justify-center transition-all duration-300
+                     ${micButtonColor}
+                     disabled:opacity-50 disabled:cursor-not-allowed
+                  `}
+            >
+              {isRecording ? <Mic className="w-6 h-6 text-white" /> : <MicOff className="w-6 h-6 text-white/50" />}
+            </button>
+
+            {/* Divider */}
+            <div className="w-px h-8 bg-white/10" />
+
+            {/* Settings / Extra */}
+            <button
+              onClick={() => setIsSettingsOpen(true)}
+              className="w-10 h-10 rounded-full hover:bg-white/5 flex items-center justify-center text-slate-400 hover:text-white transition-colors"
+            >
+              <Settings className="w-5 h-5" />
+            </button>
+
           </div>
         </div>
       </div>
 
-      {/* Footer */}
-      <div className="text-center mt-8 text-gray-400 text-sm">
-        <p>Powered by Deepgram, Groq, and Cartesia</p>
-      </div>
-    </div>
+      <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
+
+      {/* RIGHT PANEL - SIDEBAR (30%) */}
+      <aside className={`
+        absolute md:relative right-0 top-0 h-full w-full md:w-[350px] lg:w-[400px]
+        bg-slate-950/80 backdrop-blur-xl border-l border-white/5
+        flex flex-col z-30 transition-transform duration-300
+        ${isSidebarOpen ? 'translate-x-0' : 'translate-x-full md:translate-x-0'}
+      `}>
+        {/* Audio Stats (HUD) */}
+        <div className="p-4 border-b border-white/5 bg-slate-900/50">
+          <div className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Signal Telemetry</div>
+          {isConnected ? <AudioStats /> : <div className="h-20 flex items-center justify-center text-slate-600 text-sm">Offline</div>}
+        </div>
+
+        {/* Transcript Feed */}
+        <div className="flex-1 flex flex-col min-h-0 bg-transparent relative">
+          <div className="p-4 pb-2 text-xs font-bold uppercase tracking-wider text-slate-500 sticky top-0 bg-slate-950/90 z-10 backdrop-blur">
+            Live Transcript
+          </div>
+          <div className="flex-1 overflow-hidden relative">
+            <div className="absolute inset-0 p-4 pt-0">
+              <LiveCaptions /> {/* LiveCaptions handles its own scrolling */}
+            </div>
+          </div>
+        </div>
+      </aside>
+
+    </div >
   )
 }

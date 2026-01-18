@@ -1,15 +1,27 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
+import { VoiceState } from '@/store/voiceStore'
 
 interface AudioVisualizerProps {
-  audioLevel: number
+  audioLevel: number // 0 to 1
   isActive: boolean
-  state: 'idle' | 'listening' | 'thinking' | 'speaking' | 'error'
+  state: VoiceState
 }
 
 export default function AudioVisualizer({ audioLevel, isActive, state }: AudioVisualizerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
+
+  // Color configuration
+  const getColors = () => {
+    switch (state) {
+      case 'listening': return ['#4ade80', '#22c55e'] // Green
+      case 'speaking': return ['#38bdf8', '#0ea5e9'] // Blue
+      case 'thinking': return ['#a855f7', '#9333ea'] // Purple
+      case 'error': return ['#ef4444', '#dc2626'] // Red
+      default: return ['#94a3b8', '#64748b'] // Gray
+    }
+  }
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -18,60 +30,85 @@ export default function AudioVisualizer({ audioLevel, isActive, state }: AudioVi
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
-    const width = canvas.width
-    const height = canvas.height
-    const centerY = height / 2
-    const bars = 50
+    let animationId: number
+
+    // Config
+    const bars = 60 // Number of bars
+    const barWidth = 4
+    const gap = 2
+    const center = canvas.width / 2
+
+    // Animation state
+    const currentLevels = new Array(bars).fill(0)
 
     const draw = () => {
-      // Clear canvas
-      ctx.fillStyle = 'rgba(15, 23, 42, 0.3)'
-      ctx.fillRect(0, 0, width, height)
+      ctx.clearRect(0, 0, canvas.width, canvas.height)
 
-      // Draw bars
-      const barWidth = width / bars
-      
+      const [color1, color2] = getColors()
+
+      // Dynamic height based on audio level + random jitter for "aliveness"
+      // If inactive, show small idle wave
+
       for (let i = 0; i < bars; i++) {
-        const x = i * barWidth
-        
-        // Random height with audio level influence
-        const randomHeight = isActive 
-          ? (Math.random() * audioLevel * height * 0.8) + (height * 0.1)
-          : height * 0.05
+        // Calculate target height
+        let targetHeight = 0
 
-        // Color based on state
-        let color
-        switch (state) {
-          case 'listening':
-            color = `rgba(34, 197, 94, ${0.5 + audioLevel * 0.5})`
-            break
-          case 'speaking':
-            color = `rgba(59, 130, 246, ${0.5 + audioLevel * 0.5})`
-            break
-          case 'thinking':
-            color = `rgba(251, 191, 36, 0.6)`
-            break
-          default:
-            color = 'rgba(107, 114, 128, 0.3)'
+        if (isActive || state === 'speaking') {
+          // Distance from center (0 to 1)
+          const dist = Math.abs(i - bars / 2) / (bars / 2)
+
+          // Mirror effect: Higher in center, lower at edges
+          const curve = Math.cos(dist * Math.PI / 2)
+
+          // Random jitter
+          const jitter = Math.random() * 0.3 + 0.7
+
+          targetHeight = audioLevel * 100 * curve * jitter
+          targetHeight = Math.max(targetHeight, 2) // Min height
+        } else {
+          // Idle animation
+          const time = Date.now() / 300
+          const wave = Math.sin(i * 0.5 + time) * 3
+          targetHeight = 4 + wave
         }
 
-        ctx.fillStyle = color
-        ctx.fillRect(x, centerY - randomHeight / 2, barWidth - 2, randomHeight)
+        // Smooth transition
+        currentLevels[i] += (targetHeight - currentLevels[i]) * 0.2
+
+        const h = currentLevels[i]
+        const x = center - (bars * (barWidth + gap)) / 2 + i * (barWidth + gap)
+        const y = canvas.height / 2 - h / 2
+
+        // Gradient fill
+        const gradient = ctx.createLinearGradient(x, y, x, y + h)
+        gradient.addColorStop(0, color1)
+        gradient.addColorStop(1, color2)
+
+        ctx.fillStyle = gradient
+
+        // Round caps
+        ctx.beginPath()
+        ctx.roundRect(x, y, barWidth, h, 2)
+        ctx.fill()
       }
 
-      requestAnimationFrame(draw)
+      animationId = requestAnimationFrame(draw)
     }
 
     draw()
+
+    return () => {
+      cancelAnimationFrame(animationId)
+    }
   }, [audioLevel, isActive, state])
 
   return (
-    <div className="relative w-full h-32 bg-slate-900/50 rounded-lg overflow-hidden">
+    <div className="w-full h-24 flex items-center justify-center">
       <canvas
         ref={canvasRef}
-        width={800}
-        height={128}
-        className="w-full h-full"
+        width={400}
+        height={100}
+        className="max-w-full"
       />
     </div>
   )
