@@ -1,8 +1,6 @@
 """
-Voice Session with True VAD-based Turn Detection
-Accumulates audio chunks and concatenates them properly for STT
+Voice Session with Streaming Support and Audio Metrics
 """
-
 import base64
 import logging
 import time
@@ -14,6 +12,7 @@ from app.services.stt import DeepgramSTTService
 from app.services.llm import GroqLLMService
 from app.services.tts import CartesiaTTSService
 from app.services.audio_metrics import AudioMetricsService
+from app.services.vad import VoiceActivityDetector
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +29,7 @@ class VoiceSessionStreaming:
     
     # Configuration
     SILENCE_THRESHOLD = 0.02  # RMS below this = silence
-    SILENCE_DURATION = 2.5    # Seconds of silence to trigger processing (reduced for faster response)
+    SILENCE_DURATION = 2.5    # Seconds of silence to trigger processing
     MIN_SPEECH_CHUNKS = 1     # Minimum chunks with speech before considering it a turn
     
     def __init__(
@@ -41,8 +40,10 @@ class VoiceSessionStreaming:
         llm_service: GroqLLMService,
         tts_service: CartesiaTTSService,
         noise_suppressor=None,
-        vad_service=None,
-        audio_metrics_service: Optional[AudioMetricsService] = None
+        vad_service: Optional[VoiceActivityDetector] = None,
+        audio_metrics_service: Optional[AudioMetricsService] = None,
+        user_id: str = None,
+        initial_history: List[dict] = None
     ):
         self.session_id = session_id
         self.websocket = websocket
@@ -50,18 +51,20 @@ class VoiceSessionStreaming:
         self.llm_service = llm_service
         self.tts_service = tts_service
         self.audio_metrics_service = audio_metrics_service
+        self.vad_service = vad_service
+        self.user_id = user_id
         
         # Session state
         self.state: str = "idle"
-        self.conversation_history: List[dict] = []
+        self.conversation_history: List[dict] = initial_history or []
         self.processing_audio: bool = False
         
         # VAD state
-        self.audio_chunks: List[bytes] = []       # Accumulated audio
-        self.speech_detected: bool = False        # Has speech been detected in current turn?
-        self.speech_chunk_count: int = 0          # Number of chunks with speech
-        self.last_speech_time: float = 0          # When we last detected speech
-        self.silence_start_time: float = 0        # When silence started
+        self.audio_chunks: List[bytes] = []
+        self.speech_detected: bool = False
+        self.speech_chunk_count: int = 0
+        self.last_speech_time: float = 0
+        self.silence_start_time: float = 0
         
     async def send_state_update(self, state: str):
         """Send state update to frontend"""
@@ -133,10 +136,7 @@ class VoiceSessionStreaming:
         return audio_data[:4] == b'\x1a\x45\xdf\xa3'
     
     def _concatenate_audio_chunks(self, chunks: List[bytes]) -> Optional[bytes]:
-        """
-        Concatenate multiple WebM audio chunks into a single audio file.
-        Uses pydub to convert each chunk to PCM, concatenate, then export.
-        """
+        """Concatenate multiple WebM audio chunks into a single audio file."""
         try:
             if not chunks:
                 return None
@@ -146,7 +146,6 @@ class VoiceSessionStreaming:
             
             for i, chunk in enumerate(chunks):
                 try:
-                    # Convert WebM to AudioSegment
                     audio = AudioSegment.from_file(io.BytesIO(chunk), format="webm")
                     combined += audio
                     successful_chunks += 1
@@ -160,9 +159,9 @@ class VoiceSessionStreaming:
             
             logger.info(f"✅ Concatenated {successful_chunks}/{len(chunks)} chunks, duration: {len(combined)}ms")
             
-            # Export as WAV for Deepgram (simpler, no codec issues)
+            # Export as WAV for Deepgram
             output = io.BytesIO()
-            combined = combined.set_frame_rate(16000).set_channels(1)  # Normalize for STT
+            combined = combined.set_frame_rate(16000).set_channels(1)
             combined.export(output, format="wav")
             return output.getvalue()
             
@@ -171,19 +170,14 @@ class VoiceSessionStreaming:
             return None
     
     async def process_audio_chunk(self, audio_data: bytes):
-        """
-        Process incoming audio chunk with true VAD.
-        Accumulates chunks and monitors for silence to trigger processing.
-        """
+        """Process incoming audio chunk with true VAD."""
         try:
-            # Skip if currently speaking or processing
             if self.state == "speaking" or self.processing_audio:
                 logger.debug(f"Skipping - busy (state={self.state})")
                 return
             
             chunk_size = len(audio_data)
             
-            # Validate WebM
             if not self._is_valid_webm(audio_data):
                 logger.warning(f"⚠️ Invalid WebM header")
                 return
@@ -202,8 +196,8 @@ class VoiceSessionStreaming:
             now = time.time()
             
             # PUSH-TO-TALK DETECTION: Large chunk = process immediately
-            # PTT mode sends one big chunk (typically > 15KB for a few seconds of speech)
-            LARGE_CHUNK_THRESHOLD = 15000  # 15KB
+            # PTT sends all audio at once (~14-15KB), while VAD sends 1.5s chunks (~2-3KB)
+            LARGE_CHUNK_THRESHOLD = 10000
             if chunk_size > LARGE_CHUNK_THRESHOLD:
                 logger.info(f"📦 Large chunk detected ({chunk_size} bytes) - likely Push-to-Talk")
                 self.audio_chunks.append(audio_data)
@@ -215,20 +209,17 @@ class VoiceSessionStreaming:
             self.audio_chunks.append(audio_data)
             
             if is_speech:
-                # Speech detected
                 self.speech_detected = True
                 self.speech_chunk_count += 1
                 self.last_speech_time = now
-                self.silence_start_time = 0  # Reset silence timer
+                self.silence_start_time = 0
                 
                 await self.send_vad_status(is_speech=True)
                 logger.info(f"🗣️ Speech (RMS={current_rms:.3f}, total chunks={len(self.audio_chunks)})")
                 
             else:
-                # Silence detected
                 await self.send_vad_status(is_speech=False)
                 
-                # If we had speech before, start/continue silence timer
                 if self.speech_detected and self.speech_chunk_count >= self.MIN_SPEECH_CHUNKS:
                     if self.silence_start_time == 0:
                         self.silence_start_time = now
@@ -237,7 +228,6 @@ class VoiceSessionStreaming:
                     silence_duration = now - self.silence_start_time
                     logger.info(f"⏱️ Silence: {silence_duration:.1f}s / {self.SILENCE_DURATION}s")
                     
-                    # Check if silence threshold reached
                     if silence_duration >= self.SILENCE_DURATION:
                         logger.info(f"✅ Processing {len(self.audio_chunks)} chunks")
                         await self._process_accumulated_audio()
@@ -256,14 +246,12 @@ class VoiceSessionStreaming:
         
         self.processing_audio = True
         
-        # Take the chunks and reset state
         chunks_to_process = self.audio_chunks.copy()
         self.audio_chunks.clear()
         self.speech_detected = False
         self.speech_chunk_count = 0
         self.silence_start_time = 0
         
-        # CONCATENATE ALL CHUNKS into single audio
         logger.info(f"📦 Concatenating {len(chunks_to_process)} audio chunks...")
         audio_to_process = self._concatenate_audio_chunks(chunks_to_process)
         
@@ -291,7 +279,6 @@ class VoiceSessionStreaming:
                 logger.info(f"Skipping short audio ({len(audio_bytes)} bytes)")
                 return
             
-            # 1. STT
             await self.send_state_update("thinking")
             logger.info(f"🎤 STT: {len(audio_bytes)} bytes")
             
@@ -313,7 +300,6 @@ class VoiceSessionStreaming:
             await self.send_transcript_update("user", transcript, is_final=True, message_id=user_msg_id)
             self.conversation_history.append({"role": "user", "content": transcript})
             
-            # 2. LLM + TTS
             logger.info("🤖 LLM streaming...")
             
             full_response = ""
@@ -349,7 +335,6 @@ class VoiceSessionStreaming:
                     
                     sentence_buffer = ""
             
-            # Remaining text
             if sentence_buffer.strip():
                 if not first_audio_sent:
                     await self.send_state_update("speaking")

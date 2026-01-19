@@ -86,7 +86,6 @@ export function useAudioRecorder() {
 
       recorder.start()
 
-      // Stop after duration
       setTimeout(() => {
         if (recorder.state === 'recording') {
           recorder.stop()
@@ -132,15 +131,12 @@ export function useAudioRecorder() {
       setIsRecording(true)
 
       if (vadMode) {
-        // VAD MODE: Send SMALLER chunks (1.5s) continuously
-        // Backend will accumulate and detect when user stops speaking
+        // VAD MODE: Send chunks continuously (1.5s each)
         console.log('🎙️ VAD mode: Streaming 1.5-second chunks for silence detection')
 
         const recordLoop = async () => {
           while (isRecordingRef.current && mediaStreamRef.current) {
-            await recordAndSendChunk(mediaStreamRef.current, 1500) // 1.5 second chunks
-
-            // Small gap between recordings
+            await recordAndSendChunk(mediaStreamRef.current, 1500)
             await new Promise(r => setTimeout(r, 50))
           }
         }
@@ -179,7 +175,6 @@ export function useAudioRecorder() {
           cleanup()
         }
 
-        // Record continuously
         mediaRecorder.start(100)
         console.log('🎙️ Push-to-talk: Recording')
       }
