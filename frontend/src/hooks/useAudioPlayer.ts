@@ -5,6 +5,8 @@ export function useAudioPlayer() {
   const audioContextRef = useRef<AudioContext | null>(null)
   const audioQueueRef = useRef<ArrayBuffer[]>([])
   const isProcessingRef = useRef(false)
+  const currentSourceRef = useRef<AudioBufferSourceNode | null>(null)
+  const stoppedRef = useRef(false)
 
   useEffect(() => {
     // Initialize audio context
@@ -20,12 +22,10 @@ export function useAudioPlayer() {
   const processQueue = async () => {
     // Prevent concurrent processing
     if (isProcessingRef.current) {
-      console.log('⏸️ Already processing queue, skipping')
       return
     }
 
-    if (audioQueueRef.current.length === 0) {
-      console.log('📭 Queue is empty')
+    if (audioQueueRef.current.length === 0 || stoppedRef.current) {
       setIsPlaying(false)
       return
     }
@@ -46,24 +46,34 @@ export function useAudioPlayer() {
     }
 
     try {
+      // Resume context if suspended
+      if (audioContextRef.current.state === 'suspended') {
+        await audioContextRef.current.resume()
+      }
+
       const audioDataCopy = audioData.slice(0)
-      
-      console.log('🎵 Decoding audio chunk:', audioDataCopy.byteLength, 'bytes')
       const audioBuffer = await audioContextRef.current.decodeAudioData(audioDataCopy)
-      console.log('✅ Decoded, duration:', audioBuffer.duration.toFixed(2), 's')
-      
+
+      // Check if stopped during decode
+      if (stoppedRef.current) {
+        isProcessingRef.current = false
+        return
+      }
+
       const source = audioContextRef.current.createBufferSource()
       source.buffer = audioBuffer
       source.connect(audioContextRef.current.destination)
-      
+
+      // Store reference for interrupt
+      currentSourceRef.current = source
+
       // Wait for playback to finish before processing next item
       await new Promise<void>((resolve) => {
         source.onended = () => {
-          console.log('✅ Audio chunk finished')
+          currentSourceRef.current = null
           resolve()
         }
         source.start()
-        console.log('▶️ Playing audio chunk')
       })
 
     } catch (error) {
@@ -73,20 +83,19 @@ export function useAudioPlayer() {
     // Mark processing as done
     isProcessingRef.current = false
 
-    // Process next item in queue if available
-    if (audioQueueRef.current.length > 0) {
-      console.log('📋 Queue has', audioQueueRef.current.length, 'more chunks')
-      setTimeout(() => processQueue(), 50)
+    // Process next item in queue if available and not stopped
+    if (audioQueueRef.current.length > 0 && !stoppedRef.current) {
+      setTimeout(() => processQueue(), 10)
     } else {
-      console.log('🎉 Queue completed')
       setIsPlaying(false)
     }
   }
 
   const queueAudio = (audioData: ArrayBuffer) => {
-    console.log('➕ Adding to queue, current length:', audioQueueRef.current.length)
+    // Reset stopped flag when new audio comes in
+    stoppedRef.current = false
     audioQueueRef.current.push(audioData)
-    
+
     // Start processing if not already doing so
     if (!isProcessingRef.current) {
       processQueue()
@@ -94,7 +103,23 @@ export function useAudioPlayer() {
   }
 
   const stopAudio = () => {
-    console.log('🛑 Stopping audio and clearing queue')
+    console.log('🛑 Stopping audio playback immediately')
+
+    // Set stopped flag
+    stoppedRef.current = true
+
+    // Stop current playing audio
+    if (currentSourceRef.current) {
+      try {
+        currentSourceRef.current.stop()
+        currentSourceRef.current.disconnect()
+      } catch (e) {
+        // Ignore errors if already stopped
+      }
+      currentSourceRef.current = null
+    }
+
+    // Clear queue
     audioQueueRef.current = []
     isProcessingRef.current = false
     setIsPlaying(false)
