@@ -5,15 +5,19 @@ import { Mic, MicOff, Settings, Zap, Menu, X } from 'lucide-react'
 import { useVoiceStore } from '@/store/voiceStore'
 import { useAudioRecorder } from '@/hooks/useAudioRecorder'
 import { useAudioPlayer } from '@/hooks/useAudioPlayer'
+import { useInterruptDetector } from '@/hooks/useInterruptDetector'
 import AgentAvatar from './AgentAvatar'
 import LiveCaptions from './LiveCaptions'
 import AudioStats from './AudioStats'
 import SettingsModal from './SettingsModal'
 
 export default function VoiceInterface() {
-  const { state, isConnected, connect, vadStatus, setAudioCallback } = useVoiceStore()
+  const { state, isConnected, connect, vadStatus, setAudioCallback, sendInterrupt } = useVoiceStore()
   const { isRecording, startRecording, stopRecording, audioLevel, vadMode, toggleVadMode, cleanup } = useAudioRecorder()
-  const { queueAudio } = useAudioPlayer()
+  const { queueAudio, stopAudio } = useAudioPlayer()
+
+  // Enable hands-free barge-in detection (monitors mic during AI speech)
+  useInterruptDetector({ stopAudio })
   const [sessionId, setSessionId] = useState<string>('')
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
@@ -41,6 +45,18 @@ export default function VoiceInterface() {
   }, [])
 
   const handleToggleConnection = async () => {
+    // Handle barge-in interrupt when AI is speaking
+    if (state === 'speaking') {
+      console.log('🛑 Barge-in interrupt triggered')
+      stopAudio()      // Stop audio playback immediately
+      sendInterrupt()  // Send interrupt signal to backend
+      // Start recording again to capture user's new input
+      setTimeout(() => {
+        startRecording()
+      }, 100)
+      return
+    }
+
     if (!isConnected) {
       // First click: Connect WebSocket AND start recording
       await connect(sessionId)
@@ -135,15 +151,18 @@ export default function VoiceInterface() {
             {/* Divider */}
             <div className="w-px h-8 bg-white/10" />
 
-            {/* Mic Button */}
+            {/* Mic Button - Enabled during speaking for barge-in */}
             <button
               onClick={handleToggleConnection}
-              disabled={state === 'thinking' || state === 'speaking'}
+              disabled={state === 'thinking'}
               className={`
                 w-14 h-14 rounded-full flex items-center justify-center transition-all duration-300
-                ${micButtonColor}
+                ${state === 'speaking'
+                  ? 'bg-orange-500 hover:bg-orange-400 shadow-[0_0_30px_rgba(249,115,22,0.4)] animate-pulse'
+                  : micButtonColor}
                 disabled:opacity-50 disabled:cursor-not-allowed
               `}
+              title={state === 'speaking' ? 'Click to interrupt' : isRecording ? 'Recording...' : 'Click to speak'}
             >
               {isRecording ? <Mic className="w-6 h-6 text-white" /> : <MicOff className="w-6 h-6 text-white/50" />}
             </button>

@@ -51,6 +51,7 @@ interface VoiceStore {
   addCaption: (caption: Caption) => void
   updateLastCaption: (text: string) => void
   sendAudio: (audioData: Blob) => void
+  sendInterrupt: () => void  // Barge-in interrupt
   setAudioCallback: (callback: (audioData: string) => void) => void
   setAudioMetrics: (metrics: AudioMetrics) => void
   setVadStatus: (status: VadStatus) => void
@@ -140,6 +141,13 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
             break
           }
 
+          case 'interrupt_ack': {
+            // Handle interrupt acknowledgment (Day 4 barge-in)
+            console.log('🛑 Interrupt acknowledged:', data.message)
+            set({ state: 'listening' })
+            break
+          }
+
           case 'error':
             console.error('❌ Server error:', data.message)
             // Don't disconnect on error, just go back to listening
@@ -203,6 +211,15 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       ws.send(audioData)
     } else {
       console.error('❌ Cannot send audio - not connected')
+    }
+  },
+
+  sendInterrupt: () => {
+    const { ws, isConnected, state } = get()
+    if (ws && isConnected && state === 'speaking') {
+      console.log('🛑 Sending interrupt signal')
+      ws.send(JSON.stringify({ type: 'interrupt' }))
+      set({ state: 'listening' })
     }
   },
 
