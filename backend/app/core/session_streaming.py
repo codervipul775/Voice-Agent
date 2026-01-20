@@ -58,6 +58,7 @@ class VoiceSessionStreaming:
         self.state: str = "idle"
         self.conversation_history: List[dict] = initial_history or []
         self.processing_audio: bool = False
+        self.interrupted: bool = False  # Barge-in interrupt flag
         
         # VAD state
         self.audio_chunks: List[bytes] = []
@@ -128,6 +129,29 @@ class VoiceSessionStreaming:
             })
         except Exception as e:
             logger.error(f"Error sending error: {e}")
+    
+    async def handle_interrupt(self):
+        """Handle barge-in interrupt from user"""
+        logger.info("🛑 Interrupt received - stopping TTS")
+        self.interrupted = True
+        self.processing_audio = False
+        
+        # Send interrupt acknowledgment to frontend
+        try:
+            await self.websocket.send_json({
+                "type": "interrupt_ack",
+                "message": "Playback stopped"
+            })
+        except Exception as e:
+            logger.error(f"Error sending interrupt ack: {e}")
+        
+        # Transition back to listening state
+        await self.send_state_update("listening")
+    
+    def reset_interrupt(self):
+        """Reset interrupt flag for new turn"""
+        self.interrupted = False
+
 
     def _is_valid_webm(self, audio_data: bytes) -> bool:
         """Check if audio data has a valid WebM EBML header"""
@@ -172,8 +196,24 @@ class VoiceSessionStreaming:
     async def process_audio_chunk(self, audio_data: bytes):
         """Process incoming audio chunk with true VAD."""
         try:
-            if self.state == "speaking" or self.processing_audio:
-                logger.debug(f"Skipping - busy (state={self.state})")
+            # BARGE-IN: If user sends audio while AI is speaking, interrupt!
+            if self.state == "speaking":
+                chunk_size = len(audio_data)
+                # Only trigger for significant audio (not tiny fragments)
+                if chunk_size > 500:
+                    logger.info(f"🛑 BARGE-IN: Audio received while speaking ({chunk_size} bytes) - interrupting!")
+                    self.interrupted = True
+                    await self.handle_interrupt()
+                    # Queue this audio chunk for processing after interrupt
+                    self.audio_chunks = [audio_data]
+                    self.speech_detected = True
+                    self.speech_chunk_count = 1
+                    return
+                return
+            
+            # Skip if already processing
+            if self.processing_audio:
+                logger.debug(f"Skipping - already processing")
                 return
             
             chunk_size = len(audio_data)
@@ -309,12 +349,22 @@ class VoiceSessionStreaming:
             assistant_msg_id = f"assistant_{int(time.time()*1000)}"
             
             async for token in self.llm_service.stream_complete(self.conversation_history):
+                # Check for interrupt on EVERY token
+                if self.interrupted:
+                    logger.info("🛑 Interrupted during LLM streaming - breaking")
+                    break
+                
                 full_response += token
                 sentence_buffer += token
                 
                 await self.send_transcript_update("assistant", full_response, is_final=False, message_id=assistant_msg_id)
                 
                 if token in ['.', '!', '?', '\n'] and len(sentence_buffer.strip()) > 10:
+                    # Double-check interrupt before TTS
+                    if self.interrupted:
+                        logger.info("🛑 Interrupted before TTS")
+                        break
+                    
                     if not first_audio_sent:
                         await self.send_state_update("speaking")
                         first_audio_sent = True
@@ -324,7 +374,7 @@ class VoiceSessionStreaming:
                     
                     try:
                         audio_data = await self.tts_service.synthesize(sentence)
-                        if audio_data:
+                        if audio_data and not self.interrupted:
                             audio_base64 = base64.b64encode(audio_data).decode('utf-8')
                             await self.websocket.send_json({
                                 "type": "audio",
@@ -335,13 +385,14 @@ class VoiceSessionStreaming:
                     
                     sentence_buffer = ""
             
-            if sentence_buffer.strip():
+            # Only process remaining buffer if NOT interrupted
+            if sentence_buffer.strip() and not self.interrupted:
                 if not first_audio_sent:
                     await self.send_state_update("speaking")
                 
                 try:
                     audio_data = await self.tts_service.synthesize(sentence_buffer.strip())
-                    if audio_data:
+                    if audio_data and not self.interrupted:
                         audio_base64 = base64.b64encode(audio_data).decode('utf-8')
                         await self.websocket.send_json({
                             "type": "audio",
@@ -350,10 +401,14 @@ class VoiceSessionStreaming:
                 except Exception as e:
                     logger.error(f"TTS error: {e}")
             
-            await self.send_transcript_update("assistant", full_response, is_final=True, message_id=assistant_msg_id)
-            self.conversation_history.append({"role": "assistant", "content": full_response})
-            
-            logger.info(f"✅ Done: {full_response[:80]}...")
+            # Only add to history if NOT interrupted
+            if not self.interrupted:
+                await self.send_transcript_update("assistant", full_response, is_final=True, message_id=assistant_msg_id)
+                self.conversation_history.append({"role": "assistant", "content": full_response})
+                logger.info(f"✅ Done: {full_response[:80]}...")
+            else:
+                logger.info("⏹️ Response interrupted - not adding incomplete response to history")
+                await self.send_state_update("listening")
             
         except Exception as e:
             logger.error(f"Error: {e}", exc_info=True)

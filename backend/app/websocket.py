@@ -3,6 +3,7 @@ WebSocket Handler for Voice Sessions
 """
 from fastapi import WebSocket
 import logging
+import json
 from app.core.session_streaming import VoiceSessionStreaming
 from app.core.session_manager import session_manager
 from app.services.stt import DeepgramSTTService
@@ -36,6 +37,7 @@ async def handle_voice_session(websocket: WebSocket, session_id: str, user_id: s
     - Streaming LLM responses  
     - Sentence-by-sentence TTS
     - Multi-user session isolation
+    - Barge-in interrupt support
     
     Args:
         websocket: WebSocket connection
@@ -66,12 +68,46 @@ async def handle_voice_session(websocket: WebSocket, session_id: str, user_id: s
         # Update session state to listening
         await session_manager.update_session(session_id, state="listening")
         
-        async for message in websocket.iter_bytes():
+        # Handle both binary (audio) and text (JSON control) messages
+        while True:
             try:
-                if len(message) > 100:
-                    await session.process_audio_chunk(message)
+                message = await websocket.receive()
+                
+                if message["type"] == "websocket.disconnect":
+                    break
+                
+                # Handle text messages (JSON control commands)
+                if "text" in message:
+                    try:
+                        data = json.loads(message["text"])
+                        msg_type = data.get("type")
+                        
+                        if msg_type == "interrupt":
+                            logger.info("🛑 Interrupt command received")
+                            await session.handle_interrupt()
+                            continue
+                        
+                        if msg_type == "cancel_audio":
+                            logger.info("🔇 Cancel audio command received")
+                            await session.handle_interrupt()
+                            continue
+                        
+                        logger.debug(f"Unknown message type: {msg_type}")
+                        
+                    except json.JSONDecodeError:
+                        logger.warning("Invalid JSON message received")
+                    continue
+                
+                # Handle binary messages (audio data)
+                if "bytes" in message:
+                    audio_data = message["bytes"]
+                    if len(audio_data) > 100:
+                        # Reset interrupt flag when new audio comes in
+                        session.reset_interrupt()
+                        await session.process_audio_chunk(audio_data)
+                
             except Exception as e:
-                logger.error(f"Chunk error: {e}")
+                logger.error(f"Message error: {e}")
                 await session.send_state_update("listening")
             
     except Exception as e:
@@ -96,4 +132,3 @@ async def handle_voice_session(websocket: WebSocket, session_id: str, user_id: s
                     await session_manager.update_session(session_id, add_message=msg)
         
         await session.cleanup()
-
