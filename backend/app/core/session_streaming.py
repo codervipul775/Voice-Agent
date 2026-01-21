@@ -13,6 +13,7 @@ from app.services.llm import GroqLLMService
 from app.services.tts import CartesiaTTSService
 from app.services.audio_metrics import AudioMetricsService
 from app.services.vad import VoiceActivityDetector
+from app.services.search import search_service
 
 logger = logging.getLogger(__name__)
 
@@ -340,6 +341,20 @@ class VoiceSessionStreaming:
             await self.send_transcript_update("user", transcript, is_final=True, message_id=user_msg_id)
             self.conversation_history.append({"role": "user", "content": transcript})
             
+            # Check if web search is needed
+            search_context = ""
+            citation = ""
+            needs_search, search_query = await self.llm_service.detect_search_needed(transcript)
+            
+            if needs_search and search_query:
+                logger.info(f"🔍 Executing web search: '{search_query}'")
+                search_results = await search_service.search(search_query, max_results=3)
+                
+                if search_results:
+                    search_context = search_service.format_results_for_llm(search_results)
+                    citation = search_service.format_citations(search_results)
+                    logger.info(f"📚 Found {len(search_results)} search results")
+            
             logger.info("🤖 LLM streaming...")
             
             full_response = ""
@@ -348,7 +363,17 @@ class VoiceSessionStreaming:
             
             assistant_msg_id = f"assistant_{int(time.time()*1000)}"
             
-            async for token in self.llm_service.stream_complete(self.conversation_history):
+            # Use search-aware streaming if we have search context
+            if search_context:
+                token_generator = self.llm_service.stream_complete_with_context(
+                    self.conversation_history,
+                    search_context=search_context,
+                    citation=citation
+                )
+            else:
+                token_generator = self.llm_service.stream_complete(self.conversation_history)
+            
+            async for token in token_generator:
                 # Check for interrupt on EVERY token
                 if self.interrupted:
                     logger.info("🛑 Interrupted during LLM streaming - breaking")
