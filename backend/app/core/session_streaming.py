@@ -5,6 +5,7 @@ import base64
 import logging
 import time
 import io
+import uuid
 from typing import Optional, List
 from fastapi import WebSocket
 from pydub import AudioSegment
@@ -14,6 +15,7 @@ from app.services.tts import CartesiaTTSService
 from app.services.audio_metrics import AudioMetricsService
 from app.services.vad import VoiceActivityDetector
 from app.services.search import search_service
+from app.services.metrics import metrics_collector
 
 logger = logging.getLogger(__name__)
 
@@ -320,21 +322,34 @@ class VoiceSessionStreaming:
                 logger.info(f"Skipping short audio ({len(audio_bytes)} bytes)")
                 return
             
+            # Start metrics tracking with correlation ID
+            correlation_id = str(uuid.uuid4())[:8]
+            metrics_collector.start_request(correlation_id, self.session_id, self.user_id or "")
+            used_search = False
+            
             await self.send_state_update("thinking")
-            logger.info(f"🎤 STT: {len(audio_bytes)} bytes")
+            logger.info(f"🎤 [{correlation_id}] STT: {len(audio_bytes)} bytes")
             
             user_msg_id = f"user_{int(time.time()*1000)}"
             
+            # STT timing
+            metrics_collector.start_stage(correlation_id, "stt")
             try:
                 transcript = await self.stt_service.transcribe(audio_bytes)
-                logger.info(f"📝 STT result: '{transcript}'")
+                metrics_collector.end_stage(correlation_id, "stt")
+                logger.info(f"📝 [{correlation_id}] STT result: '{transcript}'")
             except Exception as e:
+                metrics_collector.end_stage(correlation_id, "stt")
+                metrics_collector.end_request(correlation_id, success=False, error_message=str(e))
                 logger.error(f"STT error: {e}", exc_info=True)
                 await self.send_state_update("listening")
                 return
             
             if not transcript or len(transcript.strip()) < 2:
-                logger.info("Empty transcript, back to listening")
+                logger.info(f"[{correlation_id}] Empty transcript, back to listening")
+                # Don't count empty transcripts as failed - they're just silence/noise
+                # Remove from in-flight tracking without recording as failure
+                metrics_collector._in_flight.pop(correlation_id, None)
                 await self.send_state_update("listening")
                 return
             
@@ -347,15 +362,19 @@ class VoiceSessionStreaming:
             needs_search, search_query = await self.llm_service.detect_search_needed(transcript)
             
             if needs_search and search_query:
-                logger.info(f"🔍 Executing web search: '{search_query}'")
+                logger.info(f"🔍 [{correlation_id}] Executing web search: '{search_query}'")
+                metrics_collector.start_stage(correlation_id, "search")
                 search_results = await search_service.search(search_query, max_results=3)
+                metrics_collector.end_stage(correlation_id, "search")
+                used_search = True
                 
                 if search_results:
                     search_context = search_service.format_results_for_llm(search_results)
                     citation = search_service.format_citations(search_results)
-                    logger.info(f"📚 Found {len(search_results)} search results")
+                    logger.info(f"📚 [{correlation_id}] Found {len(search_results)} search results")
             
-            logger.info("🤖 LLM streaming...")
+            logger.info(f"🤖 [{correlation_id}] LLM streaming...")
+            metrics_collector.start_stage(correlation_id, "llm")
             
             full_response = ""
             sentence_buffer = ""
@@ -426,17 +445,25 @@ class VoiceSessionStreaming:
                 except Exception as e:
                     logger.error(f"TTS error: {e}")
             
+            # End LLM timing (includes streaming + TTS interleaved)
+            metrics_collector.end_stage(correlation_id, "llm")
+            
             # Only add to history if NOT interrupted
             if not self.interrupted:
                 await self.send_transcript_update("assistant", full_response, is_final=True, message_id=assistant_msg_id)
                 self.conversation_history.append({"role": "assistant", "content": full_response})
-                logger.info(f"✅ Done: {full_response[:80]}...")
+                logger.info(f"✅ [{correlation_id}] Done: {full_response[:80]}...")
+                metrics_collector.end_request(correlation_id, success=True, used_search=used_search)
             else:
-                logger.info("⏹️ Response interrupted - not adding incomplete response to history")
+                logger.info(f"⏹️ [{correlation_id}] Response interrupted")
+                metrics_collector.end_request(correlation_id, success=False, error_message="interrupted")
                 await self.send_state_update("listening")
             
         except Exception as e:
             logger.error(f"Error: {e}", exc_info=True)
+            # Try to end metrics if correlation_id exists
+            if 'correlation_id' in locals():
+                metrics_collector.end_request(correlation_id, success=False, error_message=str(e))
             await self.send_error(str(e))
     
     async def cleanup(self):

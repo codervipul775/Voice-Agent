@@ -8,7 +8,9 @@ from app.core.redis import redis_manager
 from app.core.session_manager import session_manager
 from app.core.auth import create_token, create_guest_token, authenticate_websocket
 from app.core.tasks import background_tasks
+from app.services.metrics import metrics_collector
 import logging
+import asyncio
 
 # Configure logging
 logging.basicConfig(
@@ -74,6 +76,49 @@ async def health():
     }
 
 
+@app.get("/metrics")
+async def get_metrics():
+    """Get current metrics snapshot"""
+    # Update active sessions count
+    session_count = await session_manager.get_session_count()
+    metrics_collector.set_active_sessions(session_count)
+    
+    return metrics_collector.get_stats()
+
+
+@app.get("/metrics/recent")
+async def get_recent_metrics(limit: int = 10):
+    """Get recent request details"""
+    return {
+        "requests": metrics_collector.get_recent_requests(limit)
+    }
+
+
+@app.websocket("/metrics/ws")
+async def metrics_websocket(websocket: WebSocket):
+    """Real-time metrics WebSocket - pushes updates every second"""
+    await websocket.accept()
+    logger.info("📊 Metrics WebSocket connected")
+    
+    try:
+        while True:
+            # Update active sessions
+            session_count = await session_manager.get_session_count()
+            metrics_collector.set_active_sessions(session_count)
+            
+            # Send metrics
+            stats = metrics_collector.get_stats()
+            stats["recent_requests"] = metrics_collector.get_recent_requests(5)
+            
+            await websocket.send_json(stats)
+            await asyncio.sleep(1)  # Update every second
+            
+    except WebSocketDisconnect:
+        logger.info("📊 Metrics WebSocket disconnected")
+    except Exception as e:
+        logger.error(f"Metrics WebSocket error: {e}")
+
+
 @app.post("/auth/token", response_model=TokenResponse)
 async def get_auth_token(request: TokenRequest = None):
     """
@@ -97,6 +142,28 @@ async def list_sessions():
     return {
         "count": len(sessions),
         "sessions": sessions
+    }
+
+
+@app.delete("/sessions/cleanup")
+async def cleanup_all_sessions():
+    """Delete all sessions and reset metrics (admin endpoint)."""
+    sessions = await session_manager.list_active_sessions()
+    deleted = 0
+    for session in sessions:
+        await session_manager.delete_session(session["session_id"])
+        deleted += 1
+    
+    # Reset metrics collector
+    metrics_collector.total_requests = 0
+    metrics_collector.successful_requests = 0
+    metrics_collector.failed_requests = 0
+    metrics_collector.metrics_history.clear()
+    metrics_collector._in_flight.clear()
+    
+    return {
+        "message": f"Cleaned up {deleted} sessions and reset metrics",
+        "deleted_count": deleted
     }
 
 
