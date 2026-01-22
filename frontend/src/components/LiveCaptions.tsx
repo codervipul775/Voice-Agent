@@ -8,25 +8,29 @@ import { Download, Bot, User, Clock } from 'lucide-react'
 const ChatBubble = memo(({ caption }: { caption: any }) => (
   <div
     className={`
-      mb-4 flex flex-col animate-[fadeIn_0.3s_ease-out_forwards]
+      mb-7 flex flex-col animate-[fadeIn_0.5s_cubic-bezier(0.23,1,0.32,1)_forwards]
       ${caption.speaker === 'user' ? 'items-end' : 'items-start'}
     `}
   >
     {/* Header */}
-    <div className={`flex items-center gap-2 mb-1 text-[10px] uppercase font-bold tracking-wider ${caption.speaker === 'user' ? 'flex-row-reverse text-emerald-400' : 'flex-row text-cyan-400'}`}>
-      <span>{caption.speaker === 'user' ? 'You' : 'AI'}</span>
-      <span className="text-slate-600 font-normal normal-case">{new Date(caption.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+    <div className={`flex items-center gap-2 mb-2 px-1 text-[10px] uppercase font-bold tracking-[0.2em] ${caption.speaker === 'user' ? 'flex-row-reverse text-emerald-400' : 'flex-row text-cyan-400'}`}>
+      <div className="flex items-center gap-1.5">
+        {caption.speaker === 'user' ? <User className="w-3 h-3" /> : <Bot className="w-3 h-3 text-cyan-400" />}
+        <span>{caption.speaker === 'user' ? 'Direct Signal' : 'Response Link'}</span>
+      </div>
+      <span className="text-slate-600 font-normal tracking-tighter mx-1 opacity-50">/</span>
+      <span className="text-slate-600 font-medium font-mono text-[9px]">{new Date(caption.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
     </div>
 
     {/* Bubble */}
     <div
       className={`
-        px-4 py-3 rounded-2xl max-w-[90%] text-sm leading-relaxed shadow-sm
+        px-5 py-3.5 rounded-2xl max-w-[95%] text-[13px] leading-relaxed shadow-xl transition-all duration-300
         ${caption.speaker === 'user'
-          ? 'bg-emerald-900/20 border border-emerald-500/20 text-emerald-100 rounded-tr-sm'
-          : 'bg-slate-800/50 border border-white/10 text-slate-200 rounded-tl-sm'
+          ? 'bg-gradient-to-br from-emerald-600/10 to-emerald-900/20 border border-emerald-500/20 text-emerald-50/90 rounded-tr-sm'
+          : 'bg-gradient-to-br from-slate-800/40 to-slate-900/60 border border-white/5 text-slate-100/90 rounded-tl-sm'
         }
-        ${!caption.isFinal && 'opacity-70 border-dashed'}
+        ${!caption.isFinal && 'opacity-60 border-dashed bg-transparent shadow-none'}
       `}
     >
       {caption.text}
