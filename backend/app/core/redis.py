@@ -176,6 +176,37 @@ class RedisManager:
                     count += 1
             return count
         return await self._client.hdel(name, *keys)
+    
+    # Set Operations (for cache index)
+    
+    async def sadd(self, name: str, *values: str) -> int:
+        """Add members to set."""
+        if self._use_fallback:
+            if name not in self._fallback_store:
+                self._fallback_store[name] = set()
+            before = len(self._fallback_store[name])
+            self._fallback_store[name].update(values)
+            return len(self._fallback_store[name]) - before
+        return await self._client.sadd(name, *values)
+    
+    async def srem(self, name: str, *values: str) -> int:
+        """Remove members from set."""
+        if self._use_fallback:
+            set_data = self._fallback_store.get(name, set())
+            count = 0
+            for v in values:
+                if v in set_data:
+                    set_data.discard(v)
+                    count += 1
+            return count
+        return await self._client.srem(name, *values)
+    
+    async def smembers(self, name: str) -> set:
+        """Get all members of set."""
+        if self._use_fallback:
+            return self._fallback_store.get(name, set())
+        return await self._client.smembers(name)
+
 
 
 # Singleton instance
