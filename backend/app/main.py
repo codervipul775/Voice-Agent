@@ -9,6 +9,9 @@ from app.core.session_manager import session_manager
 from app.core.auth import create_token, create_guest_token, authenticate_websocket
 from app.core.tasks import background_tasks
 from app.services.metrics import metrics_collector
+from app.models.database import init_db, close_db
+from app.core.cache import get_semantic_cache
+from app.core.cache_warmer import warm_cache
 import logging
 import asyncio
 
@@ -230,11 +233,24 @@ async def startup_event():
     logger.info("Starting Voice Assistant API...")
     logger.info(f"Environment: {settings.ENVIRONMENT}")
     
+    # Initialize database
+    try:
+        await init_db()
+        logger.info("✅ Database initialized")
+    except Exception as e:
+        logger.warning(f"⚠️ Database init failed: {e}")
+    
     # Connect to Redis
     redis_url = settings.REDIS_URL
     connected = await redis_manager.connect(redis_url)
     if connected:
         logger.info("✅ Redis connected")
+        # Warm the cache
+        try:
+            cached_count = await warm_cache()
+            logger.info(f"🔥 Cache warmed with {cached_count} entries")
+        except Exception as e:
+            logger.warning(f"⚠️ Cache warming failed: {e}")
     else:
         logger.warning("⚠️ Redis not available, using in-memory fallback")
     
@@ -250,8 +266,29 @@ async def shutdown_event():
     # Stop background tasks
     await background_tasks.stop()
     
+    # Close database
+    try:
+        await close_db()
+    except Exception as e:
+        logger.warning(f"Database close error: {e}")
+    
     # Disconnect Redis
     await redis_manager.disconnect()
+
+
+@app.get("/cache/stats")
+async def get_cache_stats():
+    """Get semantic cache statistics"""
+    cache = await get_semantic_cache()
+    return cache.get_stats()
+
+
+@app.delete("/cache/clear")
+async def clear_cache():
+    """Clear the semantic cache"""
+    cache = await get_semantic_cache()
+    cleared = await cache.clear()
+    return {"message": f"Cleared {cleared} cache entries"}
 
 
 if __name__ == "__main__":

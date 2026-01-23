@@ -16,6 +16,8 @@ from app.services.audio_metrics import AudioMetricsService
 from app.services.vad import VoiceActivityDetector
 from app.services.search import search_service
 from app.services.metrics import metrics_collector
+from app.core.cache import get_semantic_cache
+from app.core.memory import ConversationMemory
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +64,10 @@ class VoiceSessionStreaming:
         self.conversation_history: List[dict] = initial_history or []
         self.processing_audio: bool = False
         self.interrupted: bool = False  # Barge-in interrupt flag
+        
+        # Memory and cache
+        self.memory = ConversationMemory(session_id=session_id, user_id=user_id)
+        self._cache = None  # Lazy loaded
         
         # VAD state
         self.audio_chunks: List[bytes] = []
@@ -356,6 +362,65 @@ class VoiceSessionStreaming:
             await self.send_transcript_update("user", transcript, is_final=True, message_id=user_msg_id)
             self.conversation_history.append({"role": "user", "content": transcript})
             
+            # Save user message to persistent memory
+            try:
+                await self.memory.save_message(
+                    role="user",
+                    content=transcript,
+                    metadata={"correlation_id": correlation_id}
+                )
+            except Exception as e:
+                logger.warning(f"Failed to save user message: {e}")
+            
+            # Check semantic cache FIRST (before search/LLM)
+            cache_hit = None
+            try:
+                cache = await get_semantic_cache()
+                cache_hit = await cache.get(transcript)
+                if cache_hit:
+                    logger.info(f"🎯 [{correlation_id}] Cache HIT! Similarity: {cache_hit['metadata'].get('similarity', 'N/A')}")
+            except Exception as e:
+                logger.warning(f"Cache lookup failed: {e}")
+            
+            # If we have a cache hit, use it directly (skip LLM)
+            if cache_hit and not needs_search:
+                cached_response = cache_hit["response"]
+                logger.info(f"⚡ [{correlation_id}] Using cached response")
+                
+                # Send cached response
+                await self.send_state_update("speaking")
+                assistant_msg_id = f"assistant_{int(time.time()*1000)}"
+                await self.send_transcript_update("assistant", cached_response, is_final=True, message_id=assistant_msg_id)
+                
+                # Generate TTS for cached response
+                if not self.interrupted:
+                    try:
+                        audio_data = await self.tts_service.synthesize(cached_response)
+                        if audio_data and not self.interrupted:
+                            audio_base64 = base64.b64encode(audio_data).decode('utf-8')
+                            await self.websocket.send_json({
+                                "type": "audio_response",
+                                "data": {"audio": audio_base64, "format": "wav"}
+                            })
+                    except Exception as e:
+                        logger.error(f"TTS error for cached response: {e}")
+                
+                self.conversation_history.append({"role": "assistant", "content": cached_response})
+                
+                # Save to memory
+                try:
+                    await self.memory.save_message(
+                        role="assistant",
+                        content=cached_response,
+                        metadata={"correlation_id": correlation_id, "cached": True}
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to save cached response: {e}")
+                
+                metrics_collector.end_request(correlation_id, success=True, used_search=False)
+                await self.send_state_update("listening")
+                return
+            
             # Check if web search is needed
             search_context = ""
             citation = ""
@@ -454,10 +519,35 @@ class VoiceSessionStreaming:
                 self.conversation_history.append({"role": "assistant", "content": full_response})
                 logger.info(f"✅ [{correlation_id}] Done: {full_response[:80]}...")
                 metrics_collector.end_request(correlation_id, success=True, used_search=used_search)
+                
+                # Cache the response for future similar queries (if not search-based)
+                if not used_search and len(full_response) > 20:
+                    try:
+                        cache = await get_semantic_cache()
+                        await cache.set(
+                            query=transcript,
+                            response=full_response,
+                            metadata={"correlation_id": correlation_id}
+                        )
+                    except Exception as e:
+                        logger.warning(f"Failed to cache response: {e}")
+                
+                # Save assistant message to memory
+                try:
+                    await self.memory.save_message(
+                        role="assistant",
+                        content=full_response,
+                        used_search=used_search,
+                        search_query=search_query if used_search else None,
+                        metadata={"correlation_id": correlation_id}
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to save assistant message: {e}")
             else:
                 logger.info(f"⏹️ [{correlation_id}] Response interrupted")
                 metrics_collector.end_request(correlation_id, success=False, error_message="interrupted")
                 await self.send_state_update("listening")
+
             
         except Exception as e:
             logger.error(f"Error: {e}", exc_info=True)
