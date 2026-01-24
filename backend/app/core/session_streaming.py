@@ -6,7 +6,7 @@ import logging
 import time
 import io
 import uuid
-from typing import Optional, List
+from typing import Optional, List, Union
 from fastapi import WebSocket
 from pydub import AudioSegment
 from app.services.stt import DeepgramSTTService
@@ -18,6 +18,7 @@ from app.services.search import search_service
 from app.services.metrics import metrics_collector
 from app.core.cache import get_semantic_cache
 from app.core.memory import ConversationMemory
+from app.core.provider_manager import ProviderManager, get_stt_manager, get_llm_manager, get_tts_manager
 
 logger = logging.getLogger(__name__)
 
@@ -41,17 +42,28 @@ class VoiceSessionStreaming:
         self,
         session_id: str,
         websocket: WebSocket,
-        stt_service: DeepgramSTTService,
-        llm_service: GroqLLMService,
-        tts_service: CartesiaTTSService,
+        stt_service: DeepgramSTTService = None,
+        llm_service: GroqLLMService = None,
+        tts_service: CartesiaTTSService = None,
         noise_suppressor=None,
         vad_service: Optional[VoiceActivityDetector] = None,
         audio_metrics_service: Optional[AudioMetricsService] = None,
         user_id: str = None,
-        initial_history: List[dict] = None
+        initial_history: List[dict] = None,
+        use_provider_managers: bool = True
     ):
         self.session_id = session_id
         self.websocket = websocket
+        
+        # Provider managers for fallback support
+        self.use_provider_managers = use_provider_managers
+        if use_provider_managers:
+            self.stt_manager = get_stt_manager()
+            self.llm_manager = get_llm_manager()
+            self.tts_manager = get_tts_manager()
+            logger.info(f"📡 Session {session_id[:8]} using provider managers with fallback")
+        
+        # Direct services (used as fallback if no managers)
         self.stt_service = stt_service
         self.llm_service = llm_service
         self.tts_service = tts_service
@@ -338,12 +350,25 @@ class VoiceSessionStreaming:
             
             user_msg_id = f"user_{int(time.time()*1000)}"
             
-            # STT timing
+            # STT timing - with provider manager fallback
             metrics_collector.start_stage(correlation_id, "stt")
             try:
-                transcript = await self.stt_service.transcribe(audio_bytes)
+                if self.use_provider_managers:
+                    # Use provider manager with automatic fallback
+                    transcript = await self.stt_manager.execute(audio_bytes)
+                    current_stt = self.stt_manager.current_provider.name if self.stt_manager.current_provider else "unknown"
+                    logger.info(f"📝 [{correlation_id}] STT ({current_stt}): '{transcript}'")
+                else:
+                    # Direct service call (legacy)
+                    transcript = await self.stt_service.transcribe(audio_bytes)
+                    logger.info(f"📝 [{correlation_id}] STT result: '{transcript}'")
                 metrics_collector.end_stage(correlation_id, "stt")
-                logger.info(f"📝 [{correlation_id}] STT result: '{transcript}'")
+            except Exception as e:
+                metrics_collector.end_stage(correlation_id, "stt")
+                metrics_collector.end_request(correlation_id, success=False, error_message=str(e))
+                logger.error(f"STT error: {e}", exc_info=True)
+                await self.send_state_update("listening")
+                return
             except Exception as e:
                 metrics_collector.end_stage(correlation_id, "stt")
                 metrics_collector.end_request(correlation_id, success=False, error_message=str(e))
@@ -395,7 +420,11 @@ class VoiceSessionStreaming:
                 # Generate TTS for cached response
                 if not self.interrupted:
                     try:
-                        audio_data = await self.tts_service.synthesize(cached_response)
+                        # Use provider manager for TTS with fallback
+                        if self.use_provider_managers:
+                            audio_data = await self.tts_manager.execute(cached_response)
+                        else:
+                            audio_data = await self.tts_service.synthesize(cached_response)
                         if audio_data and not self.interrupted:
                             audio_base64 = base64.b64encode(audio_data).decode('utf-8')
                             await self.websocket.send_json({
@@ -447,15 +476,38 @@ class VoiceSessionStreaming:
             
             assistant_msg_id = f"assistant_{int(time.time()*1000)}"
             
-            # Use search-aware streaming if we have search context
-            if search_context:
-                token_generator = self.llm_service.stream_complete_with_context(
-                    self.conversation_history,
-                    search_context=search_context,
-                    citation=citation
-                )
+            # Get token generator - with provider manager fallback support
+            if self.use_provider_managers:
+                # Use provider manager
+                llm_provider = self.llm_manager.current_provider
+                if llm_provider:
+                    if search_context:
+                        # Try search context first, fall back to regular if not available
+                        try:
+                            token_generator = llm_provider.service.stream_complete_with_context(
+                                self.conversation_history,
+                                search_context=search_context,
+                                citation=citation
+                            )
+                        except AttributeError:
+                            # Backup provider might not have stream_complete_with_context
+                            token_generator = llm_provider.stream_complete(self.conversation_history)
+                    else:
+                        token_generator = llm_provider.stream_complete(self.conversation_history)
+                    current_llm = llm_provider.name
+                    logger.info(f"🤖 [{correlation_id}] Using LLM provider: {current_llm}")
+                else:
+                    raise Exception("No LLM provider available")
             else:
-                token_generator = self.llm_service.stream_complete(self.conversation_history)
+                # Use search-aware streaming if we have search context (legacy mode)
+                if search_context:
+                    token_generator = self.llm_service.stream_complete_with_context(
+                        self.conversation_history,
+                        search_context=search_context,
+                        citation=citation
+                    )
+                else:
+                    token_generator = self.llm_service.stream_complete(self.conversation_history)
             
             async for token in token_generator:
                 # Check for interrupt on EVERY token
@@ -482,7 +534,11 @@ class VoiceSessionStreaming:
                     logger.info(f"🔊 TTS: {sentence[:50]}...")
                     
                     try:
-                        audio_data = await self.tts_service.synthesize(sentence)
+                        # Use provider manager for TTS with fallback
+                        if self.use_provider_managers:
+                            audio_data = await self.tts_manager.execute(sentence)
+                        else:
+                            audio_data = await self.tts_service.synthesize(sentence)
                         if audio_data and not self.interrupted:
                             audio_base64 = base64.b64encode(audio_data).decode('utf-8')
                             await self.websocket.send_json({
@@ -500,7 +556,11 @@ class VoiceSessionStreaming:
                     await self.send_state_update("speaking")
                 
                 try:
-                    audio_data = await self.tts_service.synthesize(sentence_buffer.strip())
+                    # Use provider manager for TTS with fallback
+                    if self.use_provider_managers:
+                        audio_data = await self.tts_manager.execute(sentence_buffer.strip())
+                    else:
+                        audio_data = await self.tts_service.synthesize(sentence_buffer.strip())
                     if audio_data and not self.interrupted:
                         audio_base64 = base64.b64encode(audio_data).decode('utf-8')
                         await self.websocket.send_json({

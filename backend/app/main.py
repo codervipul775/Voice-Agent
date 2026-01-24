@@ -79,6 +79,50 @@ async def health():
     }
 
 
+@app.get("/providers")
+async def get_providers_status():
+    """Get status of all AI providers with fallback info"""
+    from app.core.provider_manager import get_all_provider_status, get_stt_manager, get_llm_manager, get_tts_manager
+    
+    return {
+        "providers": get_all_provider_status(),
+        "summary": {
+            "stt": {
+                "current": get_stt_manager().current_provider.name if get_stt_manager().current_provider else None,
+                "available_count": len(get_stt_manager().available_providers)
+            },
+            "llm": {
+                "current": get_llm_manager().current_provider.name if get_llm_manager().current_provider else None,
+                "available_count": len(get_llm_manager().available_providers)
+            },
+            "tts": {
+                "current": get_tts_manager().current_provider.name if get_tts_manager().current_provider else None,
+                "available_count": len(get_tts_manager().available_providers)
+            }
+        }
+    }
+
+
+@app.post("/providers/{provider_type}/reset")
+async def reset_provider_circuits(provider_type: str):
+    """Reset circuit breakers for a provider type"""
+    from app.core.provider_manager import get_stt_manager, get_llm_manager, get_tts_manager
+    
+    managers = {
+        "stt": get_stt_manager,
+        "llm": get_llm_manager,
+        "tts": get_tts_manager
+    }
+    
+    if provider_type not in managers:
+        return {"error": f"Unknown provider type: {provider_type}. Use: stt, llm, tts"}
+    
+    manager = managers[provider_type]()
+    manager.reset_all_circuits()
+    
+    return {"status": "ok", "message": f"Reset all {provider_type} circuits"}
+
+
 @app.get("/metrics")
 async def get_metrics():
     """Get current metrics snapshot"""

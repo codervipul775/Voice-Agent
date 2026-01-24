@@ -1,7 +1,51 @@
 'use client';
 
 import React, { useEffect, useState, useRef } from 'react';
-import { Activity, X, BarChart3, Users, Zap, Search, Clock, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Activity, X, BarChart3, Users, Zap, Search, Clock, CheckCircle2, AlertCircle, Server, ArrowRightLeft } from 'lucide-react';
+
+interface LatencyStats {
+  p50: number;
+  p95: number;
+  p99: number;
+  avg: number;
+}
+
+interface ProviderInfo {
+  name: string;
+  priority: number;
+  enabled: boolean;
+  available: boolean;
+  circuit: {
+    state: string;
+    is_available: boolean;
+    stats: {
+      total_requests: number;
+      successful_requests: number;
+      failed_requests: number;
+      consecutive_failures: number;
+    };
+  };
+}
+
+interface ProviderStatus {
+  provider_type: string;
+  current_provider: string | null;
+  fallback_count: number;
+  providers: ProviderInfo[];
+}
+
+interface ProvidersData {
+  providers: {
+    stt: ProviderStatus | null;
+    llm: ProviderStatus | null;
+    tts: ProviderStatus | null;
+  };
+  summary: {
+    stt: { current: string | null; available_count: number };
+    llm: { current: string | null; available_count: number };
+    tts: { current: string | null; available_count: number };
+  };
+}
 
 interface LatencyStats {
   p50: number;
@@ -46,8 +90,30 @@ interface MetricsDashboardProps {
 
 const MetricsDashboard: React.FC<MetricsDashboardProps> = ({ isOpen, onClose }) => {
   const [metrics, setMetrics] = useState<Metrics | null>(null);
+  const [providers, setProviders] = useState<ProvidersData | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
+
+  // Fetch provider status
+  useEffect(() => {
+    if (!isOpen) return;
+    
+    const fetchProviders = async () => {
+      try {
+        const res = await fetch('http://localhost:8000/providers');
+        if (res.ok) {
+          const data = await res.json();
+          setProviders(data);
+        }
+      } catch (e) {
+        console.error('Failed to fetch providers:', e);
+      }
+    };
+
+    fetchProviders();
+    const interval = setInterval(fetchProviders, 5000); // Refresh every 5s
+    return () => clearInterval(interval);
+  }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -161,6 +227,34 @@ const MetricsDashboard: React.FC<MetricsDashboardProps> = ({ isOpen, onClose }) 
     </div>
   );
 
+  const ProviderRow: React.FC<{ label: string; current: string | null; count: number; fallbackCount: number }> = ({
+    label,
+    current,
+    count,
+    fallbackCount
+  }) => (
+    <div className="flex items-center justify-between py-2 border-b border-white/5 last:border-0">
+      <div className="flex flex-col">
+        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{label}</span>
+        <div className="flex items-center gap-2 mt-1">
+          <span className={`w-1.5 h-1.5 rounded-full ${current ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+          <span className="text-xs font-mono text-white">{current || 'None'}</span>
+        </div>
+      </div>
+      <div className="flex items-center gap-3">
+        {fallbackCount > 0 && (
+          <div className="flex items-center gap-1 text-amber-400" title="Fallback switches">
+            <ArrowRightLeft className="w-3 h-3" />
+            <span className="text-[10px] font-bold">{fallbackCount}</span>
+          </div>
+        )}
+        <div className="text-[9px] font-bold uppercase tracking-wider text-slate-500 bg-white/5 px-2 py-1 rounded">
+          {count}/{count > 0 ? '2' : '0'} ready
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <div className={`
       h-full w-[380px] z-50 transition-all duration-500 ease-in-out overflow-hidden flex flex-col
@@ -227,6 +321,39 @@ const MetricsDashboard: React.FC<MetricsDashboardProps> = ({ isOpen, onClose }) 
                 colorClass="text-purple-400"
               />
             </div>
+
+            {/* Provider Status Section */}
+            {providers && (
+              <div>
+                <div className="flex items-center gap-2 mb-4">
+                  <Server className="w-4 h-4 text-emerald-400" />
+                  <h3 className="text-[11px] font-bold uppercase tracking-[0.2em] text-emerald-400/80">Provider Status</h3>
+                </div>
+                <div className="bg-white/[0.03] border border-white/5 rounded-2xl p-4 space-y-3">
+                  {/* STT Provider */}
+                  <ProviderRow 
+                    label="Speech-to-Text" 
+                    current={providers.summary.stt.current}
+                    count={providers.summary.stt.available_count}
+                    fallbackCount={providers.providers.stt?.fallback_count || 0}
+                  />
+                  {/* LLM Provider */}
+                  <ProviderRow 
+                    label="Language Model" 
+                    current={providers.summary.llm.current}
+                    count={providers.summary.llm.available_count}
+                    fallbackCount={providers.providers.llm?.fallback_count || 0}
+                  />
+                  {/* TTS Provider */}
+                  <ProviderRow 
+                    label="Text-to-Speech" 
+                    current={providers.summary.tts.current}
+                    count={providers.summary.tts.available_count}
+                    fallbackCount={providers.providers.tts?.fallback_count || 0}
+                  />
+                </div>
+              </div>
+            )}
 
             {/* Latency Section */}
             <div>

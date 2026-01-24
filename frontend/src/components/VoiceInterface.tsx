@@ -11,6 +11,7 @@ import LiveCaptions from './LiveCaptions'
 import AudioStats from './AudioStats'
 import SettingsModal from './SettingsModal'
 import MetricsDashboard from './MetricsDashboard'
+import TranscriptExport from './TranscriptExport'
 
 export default function VoiceInterface() {
   const { state, isConnected, connect, vadStatus, setAudioCallback, sendInterrupt } = useVoiceStore()
@@ -99,6 +100,9 @@ export default function VoiceInterface() {
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Transcript Export */}
+            <TranscriptExport />
+            
             <button
               onClick={() => setIsMetricsOpen(!isMetricsOpen)}
               className={`p-2.5 rounded-xl transition-all ${isMetricsOpen ? 'bg-indigo-500/20 text-indigo-400 ring-1 ring-indigo-500/50' : 'text-slate-400 hover:bg-white/5'}`}

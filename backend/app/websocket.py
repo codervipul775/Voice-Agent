@@ -12,12 +12,46 @@ from app.services.tts import CartesiaTTSService
 from app.services.audio_metrics import create_audio_metrics_service
 from app.services.vad import create_vad_service
 
+# Provider fallback imports
+from app.services.stt_assemblyai import AssemblyAISTTService
+from app.services.openai_providers import OpenAILLMService, OpenAITTSService
+from app.core.provider_manager import (
+    get_stt_manager, get_llm_manager, get_tts_manager,
+    DeepgramSTTProvider, AssemblyAISTTProvider,
+    GroqLLMProvider, OpenAILLMProvider,
+    CartesiaTTSProvider, OpenAITTSProvider
+)
+
 logger = logging.getLogger(__name__)
 
-# Initialize services (singleton)
+# Initialize primary services
 stt_service = DeepgramSTTService()
 llm_service = GroqLLMService()
 tts_service = CartesiaTTSService()
+
+# Initialize backup services
+assemblyai_stt = AssemblyAISTTService()
+openai_llm = OpenAILLMService()
+openai_tts = OpenAITTSService()
+
+# Register providers with managers
+# STT Providers (Deepgram primary, AssemblyAI backup)
+stt_manager = get_stt_manager()
+stt_manager.register(DeepgramSTTProvider(stt_service))
+if assemblyai_stt.api_key:
+    stt_manager.register(AssemblyAISTTProvider(assemblyai_stt))
+
+# LLM Providers (Groq primary, OpenAI backup)
+llm_manager = get_llm_manager()
+llm_manager.register(GroqLLMProvider(llm_service))
+if openai_llm.api_key:
+    llm_manager.register(OpenAILLMProvider(openai_llm))
+
+# TTS Providers (Cartesia primary, OpenAI backup)
+tts_manager = get_tts_manager()
+tts_manager.register(CartesiaTTSProvider(tts_service))
+if openai_tts.api_key:
+    tts_manager.register(OpenAITTSProvider(openai_tts))
 
 # Audio Quality Metrics
 audio_metrics_service = create_audio_metrics_service(sample_rate=16000)
@@ -25,7 +59,7 @@ audio_metrics_service = create_audio_metrics_service(sample_rate=16000)
 # Voice Activity Detection
 vad_service = create_vad_service(aggressiveness=2)
 
-logger.info("✅ Voice services initialized")
+logger.info("✅ Voice services initialized with provider fallback")
 
 
 async def handle_voice_session(websocket: WebSocket, session_id: str, user_id: str = None):
