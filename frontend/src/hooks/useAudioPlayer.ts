@@ -113,7 +113,7 @@ export function useAudioPlayer() {
       try {
         currentSourceRef.current.stop()
         currentSourceRef.current.disconnect()
-      } catch (e) {
+      } catch {
         // Ignore errors if already stopped
       }
       currentSourceRef.current = null

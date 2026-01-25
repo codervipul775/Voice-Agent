@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Mic, MicOff, Settings, Zap, Menu, X, Activity, LayoutDashboard } from 'lucide-react'
+import { Mic, MicOff, Settings, Zap, Activity, LayoutDashboard } from 'lucide-react'
 import { useVoiceStore } from '@/store/voiceStore'
 import { useAudioRecorder } from '@/hooks/useAudioRecorder'
 import { useAudioPlayer } from '@/hooks/useAudioPlayer'
@@ -12,6 +12,7 @@ import AudioStats from './AudioStats'
 import SettingsModal from './SettingsModal'
 import MetricsDashboard from './MetricsDashboard'
 import TranscriptExport from './TranscriptExport'
+import ConnectionStatus from './ConnectionStatus'
 
 export default function VoiceInterface() {
   const { state, isConnected, connect, vadStatus, setAudioCallback, sendInterrupt } = useVoiceStore()
@@ -22,7 +23,7 @@ export default function VoiceInterface() {
   useInterruptDetector({ stopAudio })
 
   const [sessionId, setSessionId] = useState<string>('')
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true)
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true)  // Default open
   const [isMetricsOpen, setIsMetricsOpen] = useState(false)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
 
@@ -100,6 +101,9 @@ export default function VoiceInterface() {
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Connection Status */}
+            <ConnectionStatus compact />
+            
             {/* Transcript Export */}
             <TranscriptExport />
             
@@ -137,12 +141,16 @@ export default function VoiceInterface() {
               px-6 py-2 rounded-2xl border border-white/5 backdrop-blur-xl shadow-2xl transition-all duration-300
               ${state === 'listening' ? 'text-emerald-400 bg-emerald-500/5 border-emerald-500/10' :
                 state === 'thinking' ? 'text-indigo-400 bg-indigo-500/5 border-indigo-500/10' :
-                  state === 'speaking' ? 'text-cyan-400 bg-cyan-500/5 border-cyan-500/10' : 'text-slate-500 bg-white/5'}
+                state === 'speaking' ? 'text-cyan-400 bg-cyan-500/5 border-cyan-500/10' :
+                state === 'reconnecting' ? 'text-amber-400 bg-amber-500/5 border-amber-500/10' :
+                state === 'error' ? 'text-rose-400 bg-rose-500/5 border-rose-500/10' : 'text-slate-500 bg-white/5'}
             `}>
               <span className="text-xs font-bold uppercase tracking-[0.3em]">
                 {state === 'idle' ? 'System Ready' :
                   state === 'listening' ? (vadStatus?.is_speech ? 'Receiving Speech' : 'Await Signal') :
-                    state === 'thinking' ? 'Processing...' : 'Emitting Signal'}
+                  state === 'thinking' ? 'Processing...' :
+                  state === 'reconnecting' ? 'Reconnecting...' :
+                  state === 'error' ? 'Connection Error' : 'Emitting Signal'}
               </span>
             </div>
           </div>
@@ -186,16 +194,13 @@ export default function VoiceInterface() {
         </div>
       </div>
 
-      {/* SIDEBARS CONTAINER */}
-      <div className={`
-        fixed md:relative top-0 right-0 h-full flex transition-all duration-500 ease-in-out z-40
-        ${(isSidebarOpen || isMetricsOpen) ? 'translate-x-0' : 'translate-x-full md:translate-x-0'}
-      `}>
+      {/* SIDEBARS CONTAINER - Metrics on far right, Transcript slides */}
+      <div className="h-full flex transition-all duration-500 ease-in-out">
 
-        {/* TRANSCRIPT SIDEBAR */}
+        {/* TRANSCRIPT SIDEBAR - Always on right, slides left when metrics open */}
         <aside className={`
           h-full bg-[#080810]/80 backdrop-blur-2xl border-l border-white/5
-          flex flex-col transition-all duration-500
+          flex flex-col transition-all duration-500 ease-in-out
           ${isSidebarOpen
             ? 'w-[350px] lg:w-[380px] opacity-100'
             : 'w-0 opacity-0 overflow-hidden border-none'}
@@ -217,7 +222,7 @@ export default function VoiceInterface() {
           </div>
         </aside>
 
-        {/* METRICS HUD Panel */}
+        {/* METRICS HUD Panel - Slides in from right */}
         <MetricsDashboard isOpen={isMetricsOpen} onClose={() => setIsMetricsOpen(false)} />
       </div>
 

@@ -257,12 +257,12 @@ const MetricsDashboard: React.FC<MetricsDashboardProps> = ({ isOpen, onClose }) 
 
   return (
     <div className={`
-      h-full w-[380px] z-50 transition-all duration-500 ease-in-out overflow-hidden flex flex-col
+      h-full z-50 transition-all duration-500 ease-in-out overflow-hidden flex flex-col
       ${isOpen ? 'w-[380px] opacity-100 border-l border-white/10' : 'w-0 opacity-0 border-none'}
-      glass-hud
+      bg-[#080810]/90 backdrop-blur-2xl
     `}>
       {/* Header */}
-      <div className="p-5 border-b border-white/10 flex justify-between items-center bg-white/[0.02]">
+      <div className="p-5 border-b border-white/10 flex justify-between items-center bg-white/[0.02] min-w-[380px]">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-lg bg-indigo-500/20 flex items-center justify-center text-indigo-400">
             <Activity className="w-5 h-5" />
@@ -286,7 +286,7 @@ const MetricsDashboard: React.FC<MetricsDashboardProps> = ({ isOpen, onClose }) 
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto p-5 custom-scrollbar">
+      <div className="flex-1 overflow-y-auto p-5 custom-scrollbar min-w-[380px]">
         {!metrics ? (
           <div className="h-full flex flex-col items-center justify-center gap-4 text-slate-500">
             <div className="w-8 h-8 border-2 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin" />

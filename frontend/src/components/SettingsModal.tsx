@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react'
 import { X, Mic, Activity, Volume2 } from 'lucide-react'
-import { useVoiceStore } from '@/store/voiceStore'
 
 interface SettingsModalProps {
     isOpen: boolean

@@ -2,10 +2,18 @@
 
 import { useEffect, useRef, memo } from 'react'
 import { useVoiceStore } from '@/store/voiceStore'
-import { Download, Bot, User, Clock } from 'lucide-react'
+import { Bot, User, Clock, Download } from 'lucide-react'
+
+interface Caption {
+  id: string
+  speaker: 'user' | 'assistant'
+  text: string
+  timestamp: number
+  isFinal: boolean
+}
 
 // Memoized Chat Bubble
-const ChatBubble = memo(({ caption }: { caption: any }) => (
+const ChatBubble = memo(({ caption }: { caption: Caption }) => (
   <div
     className={`
       mb-7 flex flex-col animate-[fadeIn_0.5s_cubic-bezier(0.23,1,0.32,1)_forwards]

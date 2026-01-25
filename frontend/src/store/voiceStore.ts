@@ -1,6 +1,7 @@
 import { create } from 'zustand'
+import { toast } from './toastStore'
 
-export type VoiceState = 'idle' | 'listening' | 'thinking' | 'speaking' | 'error'
+export type VoiceState = 'idle' | 'listening' | 'thinking' | 'speaking' | 'error' | 'reconnecting'
 
 interface Caption {
   id: string
@@ -24,10 +25,18 @@ interface VadStatus {
   speech_ended: boolean
 }
 
+interface ConnectionState {
+  attempts: number
+  maxAttempts: number
+  lastError: string | null
+}
+
 interface VoiceStore {
   // Connection state
   isConnected: boolean
   ws: WebSocket | null
+  connectionState: ConnectionState
+  sessionId: string | null
 
   // Voice state
   state: VoiceState
@@ -55,6 +64,15 @@ interface VoiceStore {
   setAudioCallback: (callback: (audioData: string) => void) => void
   setAudioMetrics: (metrics: AudioMetrics) => void
   setVadStatus: (status: VadStatus) => void
+  resetConnection: () => void
+}
+
+// Exponential backoff helper
+const getReconnectDelay = (attempt: number): number => {
+  const baseDelay = 1000
+  const maxDelay = 30000
+  const delay = Math.min(baseDelay * Math.pow(2, attempt), maxDelay)
+  return delay + Math.random() * 1000 // Add jitter
 }
 
 export const useVoiceStore = create<VoiceStore>((set, get) => ({
@@ -65,123 +83,210 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
   audioMetrics: null,
   vadStatus: { is_speech: false, speech_ended: false },
   onAudioReceived: null,
+  sessionId: null,
+  connectionState: {
+    attempts: 0,
+    maxAttempts: 5,
+    lastError: null
+  },
 
   connect: async (sessionId: string) => {
-    const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000'
-    const ws = new WebSocket(`${wsUrl}/voice/${sessionId}`)
-
-    ws.onopen = () => {
-      console.log('✅ WebSocket connected')
-      set({ isConnected: true, ws, state: 'listening' })
+    const { connectionState, ws: existingWs } = get()
+    
+    // Close existing connection if any
+    if (existingWs) {
+      existingWs.close()
     }
 
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data)
-        console.log('📨 WS Message:', data.type)
-
-        switch (data.type) {
-          case 'state_change':
-            set({ state: data.state })
-            break
-
-          case 'transcript_update': {
-            const caption: Caption = {
-              id: data.data.id,
-              speaker: data.data.speaker,
-              text: data.data.text,
-              timestamp: data.data.timestamp * 1000,
-              isFinal: data.data.is_final
-            }
-
-            const captions = get().captions
-            const lastCaption = captions[captions.length - 1]
-
-            // Check if this is an update to the last caption (same speaker)
-            if (lastCaption && lastCaption.speaker === caption.speaker && !lastCaption.isFinal) {
-              // Replace the last interim caption with this one
-              set((state) => ({
-                captions: [...state.captions.slice(0, -1), caption]
-              }))
-            } else if (data.data.is_final) {
-              // Only add final captions as new entries
-              set((state) => ({
-                captions: [...state.captions, caption]
-              }))
-            } else {
-              // Add new interim caption
-              set((state) => ({
-                captions: [...state.captions, caption]
-              }))
-            }
-            break
-          }
-
-          case 'audio': {
-            // Handle audio playback
-            console.log('🔊 Received audio chunk, length:', data.data?.length)
-            const { onAudioReceived } = get()
-            if (onAudioReceived && data.data) {
-              onAudioReceived(data.data)
-            }
-            break
-          }
-
-          case 'audio_metrics': {
-            // Handle audio quality metrics (Day 2 feature)
-            console.log('📊 Audio metrics:', data.data)
-            set({ audioMetrics: data.data })
-            break
-          }
-
-          case 'vad_status': {
-            // Handle VAD status (Day 2 feature)
-            console.log('🎙️ VAD status:', data.data)
-            set({ vadStatus: data.data })
-            break
-          }
-
-          case 'interrupt_ack': {
-            // Handle interrupt acknowledgment (Day 4 barge-in)
-            console.log('🛑 Interrupt acknowledged:', data.message)
-            set({ state: 'listening' })
-            break
-          }
-
-          case 'error':
-            console.error('❌ Server error:', data.message)
-            // Don't disconnect on error, just go back to listening
-            set({ state: 'listening' })
-            break
-        }
-      } catch (error) {
-        console.error('Error parsing WebSocket message:', error)
-      }
-    }
-
-    ws.onerror = (error) => {
-      console.error('WebSocket error:', error)
+    // Check max attempts
+    if (connectionState.attempts >= connectionState.maxAttempts) {
+      toast.error('Connection Failed', 'Maximum reconnection attempts reached. Please refresh the page.')
       set({ state: 'error' })
+      return
     }
 
-    ws.onclose = () => {
-      console.log('🔌 WebSocket closed - reconnecting in 2s...')
-      set({ isConnected: false, ws: null, state: 'idle' })
+    set({ 
+      sessionId,
+      state: connectionState.attempts > 0 ? 'reconnecting' : 'idle'
+    })
 
-      // Auto-reconnect after 2 seconds
-      setTimeout(() => {
-        console.log('♻️ Attempting to reconnect...')
-        get().connect(sessionId)
-      }, 2000)
+    const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000'
+    
+    try {
+      const ws = new WebSocket(`${wsUrl}/voice/${sessionId}`)
+
+      // Connection timeout
+      const connectionTimeout = setTimeout(() => {
+        if (ws.readyState !== WebSocket.OPEN) {
+          ws.close()
+          toast.warning('Connection Timeout', 'Server is taking too long to respond')
+        }
+      }, 10000)
+
+      ws.onopen = () => {
+        clearTimeout(connectionTimeout)
+        console.log('✅ WebSocket connected')
+        set({ 
+          isConnected: true, 
+          ws, 
+          state: 'listening',
+          connectionState: { attempts: 0, maxAttempts: 5, lastError: null }
+        })
+        
+        if (connectionState.attempts > 0) {
+          toast.success('Reconnected', 'Connection restored successfully')
+        }
+      }
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data)
+          console.log('📨 WS Message:', data.type)
+
+          switch (data.type) {
+            case 'state_change':
+              set({ state: data.state })
+              break
+
+            case 'transcript_update': {
+              const caption: Caption = {
+                id: data.data.id,
+                speaker: data.data.speaker,
+                text: data.data.text,
+                timestamp: data.data.timestamp * 1000,
+                isFinal: data.data.is_final
+              }
+
+              const captions = get().captions
+              const lastCaption = captions[captions.length - 1]
+
+              if (lastCaption && lastCaption.speaker === caption.speaker && !lastCaption.isFinal) {
+                set((state) => ({
+                  captions: [...state.captions.slice(0, -1), caption]
+                }))
+              } else if (data.data.is_final) {
+                set((state) => ({
+                  captions: [...state.captions, caption]
+                }))
+              } else {
+                set((state) => ({
+                  captions: [...state.captions, caption]
+                }))
+              }
+              break
+            }
+
+            case 'audio': {
+              console.log('🔊 Received audio chunk, length:', data.data?.length)
+              const { onAudioReceived } = get()
+              if (onAudioReceived && data.data) {
+                onAudioReceived(data.data)
+              }
+              break
+            }
+
+            case 'audio_metrics': {
+              set({ audioMetrics: data.data })
+              break
+            }
+
+            case 'vad_status': {
+              set({ vadStatus: data.data })
+              break
+            }
+
+            case 'interrupt_ack': {
+              console.log('🛑 Interrupt acknowledged:', data.message)
+              set({ state: 'listening' })
+              break
+            }
+
+            case 'error':
+              console.error('❌ Server error:', data.message)
+              toast.error('Server Error', data.message || 'An unexpected error occurred')
+              set({ state: 'listening' })
+              break
+          }
+        } catch (error) {
+          console.error('Error parsing WebSocket message:', error)
+        }
+      }
+
+      ws.onerror = (error) => {
+        clearTimeout(connectionTimeout)
+        console.error('WebSocket error:', error)
+        set((state) => ({
+          state: 'error',
+          connectionState: {
+            ...state.connectionState,
+            lastError: 'WebSocket connection error'
+          }
+        }))
+      }
+
+      ws.onclose = (event) => {
+        clearTimeout(connectionTimeout)
+        console.log('🔌 WebSocket closed:', event.code, event.reason)
+        
+        const { sessionId, connectionState } = get()
+        set({ isConnected: false, ws: null })
+
+        // Don't reconnect if intentionally closed or max attempts reached
+        if (event.code === 1000) {
+          set({ state: 'idle' })
+          return
+        }
+
+        // Increment attempts and schedule reconnect
+        const newAttempts = connectionState.attempts + 1
+        set((state) => ({
+          state: 'reconnecting',
+          connectionState: {
+            ...state.connectionState,
+            attempts: newAttempts
+          }
+        }))
+
+        if (newAttempts < connectionState.maxAttempts && sessionId) {
+          const delay = getReconnectDelay(newAttempts)
+          console.log(`♻️ Reconnecting in ${Math.round(delay/1000)}s (attempt ${newAttempts}/${connectionState.maxAttempts})...`)
+          toast.warning('Connection Lost', `Reconnecting in ${Math.round(delay/1000)} seconds...`)
+          
+          setTimeout(() => {
+            get().connect(sessionId)
+          }, delay)
+        } else {
+          toast.error('Connection Failed', 'Unable to reconnect. Please refresh the page.')
+          set({ state: 'error' })
+        }
+      }
+    } catch (error) {
+      console.error('Failed to create WebSocket:', error)
+      toast.error('Connection Error', 'Failed to establish connection')
+      set({ state: 'error' })
     }
   },
 
   disconnect: () => {
     const { ws } = get()
     if (ws) {
-      ws.close()
+      ws.close(1000, 'User disconnected') // Normal closure
     }
-    set({ isConnected: false, ws: null, state: 'idle', audioMetrics: null })
+    set({ 
+      isConnected: false, 
+      ws: null, 
+      state: 'idle', 
+      audioMetrics: null,
+      connectionState: { attempts: 0, maxAttempts: 5, lastError: null }
+    })
+  },
+
+  resetConnection: () => {
+    const { sessionId } = get()
+    set({ connectionState: { attempts: 0, maxAttempts: 5, lastError: null } })
+    if (sessionId) {
+      get().connect(sessionId)
+    }
   },
 
   setState: (state: VoiceState) => {
