@@ -97,10 +97,11 @@ const MetricsDashboard: React.FC<MetricsDashboardProps> = ({ isOpen, onClose }) 
   // Fetch provider status
   useEffect(() => {
     if (!isOpen) return;
-    
+
     const fetchProviders = async () => {
       try {
-        const res = await fetch('http://localhost:8000/providers');
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+        const res = await fetch(`${apiUrl}/providers`);
         if (res.ok) {
           const data = await res.json();
           setProviders(data);
@@ -124,7 +125,8 @@ const MetricsDashboard: React.FC<MetricsDashboardProps> = ({ isOpen, onClose }) 
     }
 
     const connectWebSocket = () => {
-      const ws = new WebSocket('ws://localhost:8000/metrics/ws');
+      const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000';
+      const ws = new WebSocket(`${wsUrl}/metrics/ws`);
       wsRef.current = ws;
 
       ws.onopen = () => {
@@ -331,22 +333,22 @@ const MetricsDashboard: React.FC<MetricsDashboardProps> = ({ isOpen, onClose }) 
                 </div>
                 <div className="bg-white/[0.03] border border-white/5 rounded-2xl p-4 space-y-3">
                   {/* STT Provider */}
-                  <ProviderRow 
-                    label="Speech-to-Text" 
+                  <ProviderRow
+                    label="Speech-to-Text"
                     current={providers.summary.stt.current}
                     count={providers.summary.stt.available_count}
                     fallbackCount={providers.providers.stt?.fallback_count || 0}
                   />
                   {/* LLM Provider */}
-                  <ProviderRow 
-                    label="Language Model" 
+                  <ProviderRow
+                    label="Language Model"
                     current={providers.summary.llm.current}
                     count={providers.summary.llm.available_count}
                     fallbackCount={providers.providers.llm?.fallback_count || 0}
                   />
                   {/* TTS Provider */}
-                  <ProviderRow 
-                    label="Text-to-Speech" 
+                  <ProviderRow
+                    label="Text-to-Speech"
                     current={providers.summary.tts.current}
                     count={providers.summary.tts.available_count}
                     fallbackCount={providers.providers.tts?.fallback_count || 0}

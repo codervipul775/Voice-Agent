@@ -180,12 +180,29 @@ class VoiceSessionStreaming:
             return False
         return audio_data[:4] == b'\x1a\x45\xdf\xa3'
     
+    def _check_ffprobe_available(self) -> bool:
+        """Check if ffprobe is available on the system."""
+        import shutil
+        return shutil.which("ffprobe") is not None
+    
     def _concatenate_audio_chunks(self, chunks: List[bytes]) -> Optional[bytes]:
         """Concatenate multiple WebM audio chunks into a single audio file."""
         try:
             if not chunks:
                 return None
             
+            # Check ffprobe availability FIRST - skip pydub entirely if not available
+            if not self._check_ffprobe_available():
+                logger.warning("⚠️ ffprobe not available, using WebM fallback")
+                # WebM is a container format - can't just concatenate multiple files!
+                # Each chunk is a complete WebM file with headers.
+                # Use the LARGEST chunk (most audio data) as a valid WebM file
+                largest_chunk = max(chunks, key=len)
+                logger.info(f"📦 Fallback: Using largest WebM chunk ({len(largest_chunk)} bytes) from {len(chunks)} chunks")
+                return largest_chunk
+
+            
+            # ffprobe is available, use pydub
             combined = AudioSegment.empty()
             successful_chunks = 0
             
@@ -213,6 +230,7 @@ class VoiceSessionStreaming:
         except Exception as e:
             logger.error(f"Error concatenating audio: {e}", exc_info=True)
             return None
+
     
     async def process_audio_chunk(self, audio_data: bytes):
         """Process incoming audio chunk with true VAD."""
@@ -246,6 +264,7 @@ class VoiceSessionStreaming:
             # Analyze audio for speech detection
             is_speech = False
             current_rms = 0
+            using_fallback = False
             
             if self.audio_metrics_service:
                 metrics = self.audio_metrics_service.analyze(audio_data)
@@ -253,7 +272,14 @@ class VoiceSessionStreaming:
                     await self.send_audio_metrics(metrics)
                     current_rms = metrics["rms"]
                     is_speech = current_rms > self.SILENCE_THRESHOLD
-            
+                else:
+                    # Fallback mode: ffprobe not available
+                    using_fallback = True
+                    is_speech = True  # Assume speech in fallback mode
+            else:
+                using_fallback = True
+                is_speech = True
+
             now = time.time()
             
             # PUSH-TO-TALK DETECTION: Large chunk = process immediately
@@ -269,6 +295,23 @@ class VoiceSessionStreaming:
             # Store the chunk for VAD mode
             self.audio_chunks.append(audio_data)
             
+            # FALLBACK MODE: Timer-based processing (since we can't detect silence)
+            if using_fallback:
+                self.speech_detected = True
+                self.speech_chunk_count += 1
+                await self.send_vad_status(is_speech=True)
+                
+                # Process after accumulating enough audio (6 chunks = ~9 seconds at 1.5s/chunk)
+                # Or if we have minimum chunks and haven't received new audio in a while
+                MAX_CHUNKS_FALLBACK = 6
+                if len(self.audio_chunks) >= MAX_CHUNKS_FALLBACK:
+                    logger.info(f"⏱️ Fallback: Processing {len(self.audio_chunks)} chunks (timer-based)")
+                    await self._process_accumulated_audio()
+                else:
+                    logger.info(f"📦 Fallback mode: {len(self.audio_chunks)}/{MAX_CHUNKS_FALLBACK} chunks")
+                return
+            
+            # NORMAL MODE: RMS-based speech detection
             if is_speech:
                 self.speech_detected = True
                 self.speech_chunk_count += 1
@@ -292,6 +335,7 @@ class VoiceSessionStreaming:
                     if silence_duration >= self.SILENCE_DURATION:
                         logger.info(f"✅ Processing {len(self.audio_chunks)} chunks")
                         await self._process_accumulated_audio()
+
                 
         except Exception as e:
             logger.error(f"Error processing chunk: {e}", exc_info=True)
