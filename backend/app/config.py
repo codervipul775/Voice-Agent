@@ -20,7 +20,21 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
     DEBUG: bool = True
     SECRET_KEY: str = "your-secret-key-change-in-production"
-    CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:3001"]
+    CORS_ORIGINS: List[str] = [
+        "http://localhost:3000", 
+        "http://localhost:3001",
+        "https://voice-agent-theta-six.vercel.app",
+    ]
+    
+    @property
+    def cors_origins_list(self) -> List[str]:
+        """Get CORS origins, supporting env variable override."""
+        import os
+        env_origins = os.getenv("CORS_ORIGINS", "")
+        if env_origins:
+            return [o.strip() for o in env_origins.split(",")]
+        return self.CORS_ORIGINS
+
     
     # Performance
     MAX_CONCURRENT_SESSIONS: int = 100

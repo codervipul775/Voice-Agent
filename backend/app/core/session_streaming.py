@@ -253,6 +253,15 @@ class VoiceSessionStreaming:
                     await self.send_audio_metrics(metrics)
                     current_rms = metrics["rms"]
                     is_speech = current_rms > self.SILENCE_THRESHOLD
+                else:
+                    # Fallback: assume speech if we got audio data (ffprobe not available)
+                    # For large chunks, assume it's speech
+                    is_speech = chunk_size > 2000
+                    logger.debug(f"Audio metrics unavailable, fallback speech detection: {is_speech}")
+            else:
+                # No audio metrics service, assume speech for any substantial audio
+                is_speech = chunk_size > 2000
+
             
             now = time.time()
             

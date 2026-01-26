@@ -17,12 +17,27 @@ if DATABASE_URL.startswith("postgres://"):
 elif DATABASE_URL.startswith("postgresql://") and "+asyncpg" not in DATABASE_URL:
     DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
 
+# Determine connection args based on database type
+connect_args = {}
+if "sqlite" in DATABASE_URL:
+    connect_args = {"check_same_thread": False}
+else:
+    # For PostgreSQL with asyncpg, handle SSL via query params (already in URL)
+    # Remove sslmode from URL if present (asyncpg uses ssl param differently)
+    if "sslmode=" in DATABASE_URL:
+        # Extract sslmode and convert to asyncpg format
+        import re
+        DATABASE_URL = re.sub(r'[\?&]sslmode=[^&]*', '', DATABASE_URL)
+        connect_args = {"ssl": "require"}
+
 # Create async engine
 engine = create_async_engine(
     DATABASE_URL,
     echo=os.getenv("DEBUG", "false").lower() == "true",
     pool_pre_ping=True,
+    connect_args=connect_args if "sqlite" in DATABASE_URL else {},
 )
+
 
 # Session factory
 async_session_maker = async_sessionmaker(
