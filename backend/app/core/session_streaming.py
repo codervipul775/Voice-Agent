@@ -246,6 +246,7 @@ class VoiceSessionStreaming:
             # Analyze audio for speech detection
             is_speech = False
             current_rms = 0
+            using_fallback = False
             
             if self.audio_metrics_service:
                 metrics = self.audio_metrics_service.analyze(audio_data)
@@ -254,15 +255,13 @@ class VoiceSessionStreaming:
                     current_rms = metrics["rms"]
                     is_speech = current_rms > self.SILENCE_THRESHOLD
                 else:
-                    # Fallback: assume speech if we got audio data (ffprobe not available)
-                    # For large chunks, assume it's speech
-                    is_speech = chunk_size > 2000
-                    logger.debug(f"Audio metrics unavailable, fallback speech detection: {is_speech}")
+                    # Fallback mode: ffprobe not available
+                    using_fallback = True
+                    is_speech = True  # Assume speech in fallback mode
             else:
-                # No audio metrics service, assume speech for any substantial audio
-                is_speech = chunk_size > 2000
+                using_fallback = True
+                is_speech = True
 
-            
             now = time.time()
             
             # PUSH-TO-TALK DETECTION: Large chunk = process immediately
@@ -278,6 +277,23 @@ class VoiceSessionStreaming:
             # Store the chunk for VAD mode
             self.audio_chunks.append(audio_data)
             
+            # FALLBACK MODE: Timer-based processing (since we can't detect silence)
+            if using_fallback:
+                self.speech_detected = True
+                self.speech_chunk_count += 1
+                await self.send_vad_status(is_speech=True)
+                
+                # Process after accumulating enough audio (6 chunks = ~9 seconds at 1.5s/chunk)
+                # Or if we have minimum chunks and haven't received new audio in a while
+                MAX_CHUNKS_FALLBACK = 6
+                if len(self.audio_chunks) >= MAX_CHUNKS_FALLBACK:
+                    logger.info(f"⏱️ Fallback: Processing {len(self.audio_chunks)} chunks (timer-based)")
+                    await self._process_accumulated_audio()
+                else:
+                    logger.info(f"📦 Fallback mode: {len(self.audio_chunks)}/{MAX_CHUNKS_FALLBACK} chunks")
+                return
+            
+            # NORMAL MODE: RMS-based speech detection
             if is_speech:
                 self.speech_detected = True
                 self.speech_chunk_count += 1
@@ -301,6 +317,7 @@ class VoiceSessionStreaming:
                     if silence_duration >= self.SILENCE_DURATION:
                         logger.info(f"✅ Processing {len(self.audio_chunks)} chunks")
                         await self._process_accumulated_audio()
+
                 
         except Exception as e:
             logger.error(f"Error processing chunk: {e}", exc_info=True)
