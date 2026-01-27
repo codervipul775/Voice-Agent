@@ -27,7 +27,10 @@ else:
     if "sslmode=" in DATABASE_URL:
         # Extract sslmode and convert to asyncpg format
         import re
+        # Fix: Ensure we don't leave a trailing ? or &
         DATABASE_URL = re.sub(r'[\?&]sslmode=[^&]*', '', DATABASE_URL)
+        # Ensure the URL is still valid if we removed the last param
+        DATABASE_URL = DATABASE_URL.rstrip('?&')
         connect_args = {"ssl": "require"}
 
 # Create async engine
@@ -35,7 +38,7 @@ engine = create_async_engine(
     DATABASE_URL,
     echo=os.getenv("DEBUG", "false").lower() == "true",
     pool_pre_ping=True,
-    connect_args=connect_args if "sqlite" in DATABASE_URL else {},
+    connect_args=connect_args, # Use connect_args for all engine types
 )
 
 

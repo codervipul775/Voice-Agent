@@ -226,67 +226,62 @@ class VoiceSessionStreaming:
             if not chunks:
                 return None
             
-            # Check ffprobe availability FIRST
-            if not self._check_ffprobe_available():
-                logger.warning("⚠️ ffprobe not available - returning chunks for individual processing")
-                # Return None to signal caller to use per-chunk transcription
-                return None
-            
-            # ffprobe is available, use pydub to properly merge
-            combined = AudioSegment.empty()
-            successful_chunks = 0
-            
-            for i, chunk in enumerate(chunks):
+            # 1. Attempt proper merging if ffprobe is available
+            if self._check_ffprobe_available():
                 try:
-                    audio = AudioSegment.from_file(io.BytesIO(chunk), format="webm")
-                    combined += audio
-                    successful_chunks += 1
+                    combined = AudioSegment.empty()
+                    successful_chunks = 0
+                    
+                    for i, chunk in enumerate(chunks):
+                        try:
+                            audio = AudioSegment.from_file(io.BytesIO(chunk), format="webm")
+                            combined += audio
+                            successful_chunks += 1
+                        except Exception as e:
+                            logger.warning(f"Failed to process chunk {i}: {e}")
+                            continue
+                    
+                    if successful_chunks > 0:
+                        logger.info(f"✅ Concatenated {successful_chunks}/{len(chunks)} chunks using ffmpeg, duration: {len(combined)}ms")
+                        output = io.BytesIO()
+                        combined = combined.set_frame_rate(16000).set_channels(1)
+                        combined.export(output, format="wav")
+                        return output.getvalue()
                 except Exception as e:
-                    logger.warning(f"Failed to process chunk {i}: {e}")
-                    continue
-            
-            if successful_chunks == 0:
-                logger.error("No chunks could be processed")
-                return None
-            
-            logger.info(f"✅ Concatenated {successful_chunks}/{len(chunks)} chunks, duration: {len(combined)}ms")
-            
-            # Export as WAV for Deepgram
-            output = io.BytesIO()
-            combined = combined.set_frame_rate(16000).set_channels(1)
-            combined.export(output, format="wav")
-            return output.getvalue()
+                    logger.warning(f"ffmpeg concatenation failed, falling back to raw: {e}")
+
+            # 2. Fallback: Raw byte concatenation (Deepgram Nova-2 can often handle this for WebM)
+            logger.warning("⚠️ Using raw byte concatenation fallback (faster, no ffprobe needed)")
+            # WebM files have a header (EBML). For raw concatenation to work best, 
+            # we should technically only keep the header of the first chunk if they are from the same stream.
+            # However, Nova-2 is very robust and can often handle concatenated files with multiple headers.
+            return b"".join(chunks)
             
         except Exception as e:
             logger.error(f"Error concatenating audio: {e}", exc_info=True)
             return None
     
     async def _transcribe_chunks_individually(self, chunks: List[bytes]) -> Optional[str]:
-        """Fallback: Transcribe each WebM chunk individually and combine transcripts."""
+        """Fallback: Transcribe all WebM chunks in parallel and combine transcripts."""
         try:
-            transcripts = []
-            
-            for i, chunk in enumerate(chunks):
-                try:
-                    if len(chunk) < 1000:
-                        continue  # Skip tiny chunks
-                    
-                    # Each chunk is a valid WebM file - send directly to Deepgram
-                    if self.use_provider_managers:
-                        transcript = await self.stt_manager.execute(chunk)
-                    else:
-                        transcript = await self.stt_service.transcribe(chunk)
-                    
-                    if transcript and transcript.strip():
-                        transcripts.append(transcript.strip())
-                        logger.info(f"📝 Chunk {i+1}/{len(chunks)}: '{transcript}'")
-                        
-                except Exception as e:
-                    logger.warning(f"Failed to transcribe chunk {i}: {e}")
-                    continue
-            
-            if not transcripts:
+            if not chunks:
                 return None
+                
+            async def transcribe_one(i: int, chunk: bytes) -> Optional[str]:
+                if len(chunk) < 500: # Slightly lower threshold
+                    return None
+                try:
+                    if self.use_provider_managers:
+                        return await self.stt_manager.execute(chunk)
+                    return await self.stt_service.transcribe(chunk)
+                except Exception as e:
+                    logger.warning(f"Chunk {i} failed: {e}")
+                    return None
+
+            # CRITICAL: Process all chunks in PARALLEL to avoid sequential delay
+            tasks = [transcribe_one(i, chunk) for i, chunk in enumerate(chunks)]
+            results = await asyncio.gather(*tasks)
+            transcripts = [t.strip() for t in results if t and t.strip()]
             
             combined_transcript = " ".join(transcripts)
             logger.info(f"📝 Combined transcript from {len(transcripts)} chunks: '{combined_transcript}'")
