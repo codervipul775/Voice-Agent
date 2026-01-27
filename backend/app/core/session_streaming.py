@@ -444,9 +444,8 @@ class VoiceSessionStreaming:
                 self.speech_chunk_count += 1
                 await self.send_vad_status(is_speech=True)
                 
-                # Process after accumulating enough audio (6 chunks = ~9 seconds at 1.5s/chunk)
-                # Or if we have minimum chunks and haven't received new audio in a while
-                MAX_CHUNKS_FALLBACK = 6
+                # Process after accumulating enough audio (2 chunks = ~3 seconds at 1.5s/chunk)
+                MAX_CHUNKS_FALLBACK = 2
                 if len(self.audio_chunks) >= MAX_CHUNKS_FALLBACK:
                     logger.info(f"⏱️ Fallback: Processing {len(self.audio_chunks)} chunks (timer-based)")
                     await self._process_accumulated_audio()
