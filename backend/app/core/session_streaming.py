@@ -87,6 +87,7 @@ class VoiceSessionStreaming:
         self.speech_chunk_count: int = 0
         self.last_speech_time: float = 0
         self.silence_start_time: float = 0
+        self._silence_check_task: Optional[asyncio.Task] = None  # For fallback VAD
         
     async def send_state_update(self, state: str):
         """Send state update to frontend"""
@@ -184,6 +185,39 @@ class VoiceSessionStreaming:
         """Check if ffprobe is available on the system."""
         import shutil
         return shutil.which("ffprobe") is not None
+    
+    async def _silence_timeout_handler(self, timeout: float = 2.0):
+        """
+        Background task that processes audio after silence timeout.
+        Triggered when no new chunks arrive for 'timeout' seconds.
+        """
+        try:
+            await asyncio.sleep(timeout)
+            
+            # Check if we still have chunks to process and no new chunks arrived
+            if len(self.audio_chunks) > 0 and not self.processing_audio:
+                elapsed = time.time() - self.last_speech_time
+                if elapsed >= timeout - 0.1:  # Small margin for timing
+                    logger.info(f"⏱️ Silence timeout ({elapsed:.1f}s): Processing {len(self.audio_chunks)} chunks")
+                    await self._process_accumulated_audio()
+        except asyncio.CancelledError:
+            # Task was cancelled (new chunk arrived), that's expected
+            pass
+        except Exception as e:
+            logger.error(f"Error in silence timeout handler: {e}")
+    
+    def _cancel_silence_check(self):
+        """Cancel any pending silence check task."""
+        if self._silence_check_task and not self._silence_check_task.done():
+            self._silence_check_task.cancel()
+            self._silence_check_task = None
+    
+    def _schedule_silence_check(self, timeout: float = 2.0):
+        """Schedule a silence check after timeout seconds."""
+        self._cancel_silence_check()
+        self._silence_check_task = asyncio.create_task(
+            self._silence_timeout_handler(timeout)
+        )
     
     def _concatenate_audio_chunks(self, chunks: List[bytes]) -> Optional[bytes]:
         """Concatenate multiple WebM audio chunks into a single audio file."""
@@ -438,19 +472,17 @@ class VoiceSessionStreaming:
             # Store the chunk for VAD mode
             self.audio_chunks.append(audio_data)
             
-            # FALLBACK MODE: Timer-based processing (since we can't detect silence)
+            # FALLBACK MODE: Silence timeout-based processing (since we can't detect silence via RMS)
             if using_fallback:
                 self.speech_detected = True
                 self.speech_chunk_count += 1
+                self.last_speech_time = now  # Track when we last received a chunk
                 await self.send_vad_status(is_speech=True)
                 
-                # Process after accumulating enough audio (2 chunks = ~3 seconds at 1.5s/chunk)
-                MAX_CHUNKS_FALLBACK = 2
-                if len(self.audio_chunks) >= MAX_CHUNKS_FALLBACK:
-                    logger.info(f"⏱️ Fallback: Processing {len(self.audio_chunks)} chunks (timer-based)")
-                    await self._process_accumulated_audio()
-                else:
-                    logger.info(f"📦 Fallback mode: {len(self.audio_chunks)}/{MAX_CHUNKS_FALLBACK} chunks")
+                # Schedule silence check - will be cancelled if another chunk arrives
+                # If no more chunks arrive within 2 seconds, audio will be processed
+                self._schedule_silence_check(timeout=2.0)
+                logger.info(f"📦 Fallback mode: {len(self.audio_chunks)} chunks (waiting for silence)")
                 return
             
             # NORMAL MODE: RMS-based speech detection
