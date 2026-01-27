@@ -409,12 +409,16 @@ class VoiceSessionStreaming:
                 metrics = self.audio_metrics_service.analyze(audio_data)
                 if metrics["quality_score"] > 0:
                     await self.send_audio_metrics(metrics)
-                    current_rms = metrics["rms"]
-                    is_speech = current_rms > self.SILENCE_THRESHOLD
-                else:
-                    # Fallback mode: ffprobe not available
+                    
+                # Check if using fallback mode (RMS values are unreliable)
+                if metrics.get("is_fallback", False):
+                    # Fallback mode: ffprobe not available, RMS is from byte-estimation
                     using_fallback = True
                     is_speech = True  # Assume speech in fallback mode
+                else:
+                    # Normal mode: Use accurate RMS for silence detection
+                    current_rms = metrics["rms"]
+                    is_speech = current_rms > self.SILENCE_THRESHOLD
             else:
                 using_fallback = True
                 is_speech = True

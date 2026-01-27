@@ -308,7 +308,8 @@ class AudioMetricsService:
             "clipping": {"is_clipping": False, "clipped_samples": 0, "clip_percentage": 0.0},
             "quality_score": 0,
             "quality_label": "unknown",
-            "duration_ms": 0
+            "duration_ms": 0,
+            "is_fallback": not _FFPROBE_AVAILABLE  # True when using byte-estimation (RMS unreliable)
         }
         
         # Convert to numpy
