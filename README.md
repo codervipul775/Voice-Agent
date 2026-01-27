@@ -249,4 +249,3 @@ MIT
 ---
 
 Built with ❤️ using FastAPI, Next.js, and cutting-edge AI APIs
-# Force redeploy Mon Jan 26 17:13:39 IST 2026
