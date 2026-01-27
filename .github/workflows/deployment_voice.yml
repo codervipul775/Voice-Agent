@@ -44,8 +44,18 @@ jobs:
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_2CD9DAF6D1844EB695DB5E49BF6E7B23 }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_219711D9C662428BA965574600D6F75E }}
 
+      - name: 'Stop Azure Web App before deployment'
+        run: |
+          az webapp stop --name Voice --resource-group Voice_group || echo "Stop failed, continuing..."
+          sleep 5
+        
       - name: 'Deploy to Azure Web App'
         uses: azure/webapps-deploy@v3
         with:
           app-name: 'Voice'
           slot-name: 'Production'
+          clean: true
+
+      - name: 'Start Azure Web App after deployment'
+        run: |
+          az webapp start --name Voice --resource-group Voice_group
