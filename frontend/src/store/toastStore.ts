@@ -25,16 +25,17 @@ export const useToastStore = create<ToastStore>((set, get) => ({
   addToast: (toast) => {
     const id = `toast-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
     const newToast: Toast = { ...toast, id, duration: toast.duration || 5000 }
-    
+
     set((state) => ({
       toasts: [...state.toasts, newToast]
     }))
 
-    // Auto-remove after duration
-    if (newToast.duration > 0) {
+    // Auto-remove after duration (duration is always set via default)
+    const duration = newToast.duration ?? 5000
+    if (duration > 0) {
       setTimeout(() => {
         get().removeToast(id)
-      }, newToast.duration)
+      }, duration)
     }
   },
 
@@ -51,15 +52,15 @@ export const useToastStore = create<ToastStore>((set, get) => ({
 
 // Helper functions for easy toast creation
 export const toast = {
-  success: (title: string, message?: string) => 
+  success: (title: string, message?: string) =>
     useToastStore.getState().addToast({ type: 'success', title, message }),
-  
-  error: (title: string, message?: string) => 
+
+  error: (title: string, message?: string) =>
     useToastStore.getState().addToast({ type: 'error', title, message, duration: 8000 }),
-  
-  warning: (title: string, message?: string) => 
+
+  warning: (title: string, message?: string) =>
     useToastStore.getState().addToast({ type: 'warning', title, message }),
-  
-  info: (title: string, message?: string) => 
+
+  info: (title: string, message?: string) =>
     useToastStore.getState().addToast({ type: 'info', title, message })
 }
