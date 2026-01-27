@@ -226,36 +226,36 @@ class VoiceSessionStreaming:
             if not chunks:
                 return None
             
-            # 1. Attempt proper merging if ffprobe is available
-            if self._check_ffprobe_available():
-                try:
-                    combined = AudioSegment.empty()
-                    successful_chunks = 0
-                    
-                    for i, chunk in enumerate(chunks):
-                        try:
-                            audio = AudioSegment.from_file(io.BytesIO(chunk), format="webm")
-                            combined += audio
-                            successful_chunks += 1
-                        except Exception as e:
-                            logger.warning(f"Failed to process chunk {i}: {e}")
-                            continue
-                    
-                    if successful_chunks > 0:
-                        logger.info(f"✅ Concatenated {successful_chunks}/{len(chunks)} chunks using ffmpeg, duration: {len(combined)}ms")
-                        output = io.BytesIO()
-                        combined = combined.set_frame_rate(16000).set_channels(1)
-                        combined.export(output, format="wav")
-                        return output.getvalue()
-                except Exception as e:
-                    logger.warning(f"ffmpeg concatenation failed, falling back to raw: {e}")
-
-            # 2. Fallback: Raw byte concatenation (Deepgram Nova-2 can often handle this for WebM)
-            logger.warning("⚠️ Using raw byte concatenation fallback (faster, no ffprobe needed)")
-            # WebM files have a header (EBML). For raw concatenation to work best, 
-            # we should technically only keep the header of the first chunk if they are from the same stream.
-            # However, Nova-2 is very robust and can often handle concatenated files with multiple headers.
-            return b"".join(chunks)
+            # Only attempt merging if ffprobe is available
+            # Raw byte concatenation does NOT work for WebM - Deepgram only reads first chunk
+            if not self._check_ffprobe_available():
+                logger.warning("⚠️ ffprobe not available - using parallel chunk transcription")
+                return None  # Triggers parallel chunk-by-chunk transcription
+            
+            # ffprobe is available, use pydub to properly merge
+            try:
+                combined = AudioSegment.empty()
+                successful_chunks = 0
+                
+                for i, chunk in enumerate(chunks):
+                    try:
+                        audio = AudioSegment.from_file(io.BytesIO(chunk), format="webm")
+                        combined += audio
+                        successful_chunks += 1
+                    except Exception as e:
+                        logger.warning(f"Failed to process chunk {i}: {e}")
+                        continue
+                
+                if successful_chunks > 0:
+                    logger.info(f"✅ Concatenated {successful_chunks}/{len(chunks)} chunks using ffmpeg, duration: {len(combined)}ms")
+                    output = io.BytesIO()
+                    combined = combined.set_frame_rate(16000).set_channels(1)
+                    combined.export(output, format="wav")
+                    return output.getvalue()
+            except Exception as e:
+                logger.warning(f"ffmpeg concatenation failed: {e}")
+            
+            return None  # Fall back to parallel chunk transcription
             
         except Exception as e:
             logger.error(f"Error concatenating audio: {e}", exc_info=True)
