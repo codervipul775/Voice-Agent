@@ -48,6 +48,16 @@ jobs:
         run: |
           az webapp stop --name Voice --resource-group Voice_group || echo "Stop failed, continuing..."
           sleep 30
+
+      - name: 'ffprobe'
+        run: |
+          sudo apt install ffmpeg
+          if ffprobe -version >/dev/null 2>&1
+          then
+            echo 'ffprobe is installed'
+          else
+            echo 'ffprobe is not installed'
+          fi
         
       - name: 'Deploy to Azure Web App'
         uses: azure/webapps-deploy@v3
@@ -59,3 +69,4 @@ jobs:
       - name: 'Start Azure Web App after deployment'
         run: |
           az webapp start --name Voice --resource-group Voice_group
+
