@@ -47,14 +47,14 @@ jobs:
       - name: 'Stop Azure Web App before deployment'
         run: |
           az webapp stop --name Voice --resource-group Voice_group || echo "Stop failed, continuing..."
-          sleep 5
+          sleep 30
         
       - name: 'Deploy to Azure Web App'
         uses: azure/webapps-deploy@v3
         with:
           app-name: 'Voice'
           slot-name: 'Production'
-          clean: true
+          package: .
 
       - name: 'Start Azure Web App after deployment'
         run: |
