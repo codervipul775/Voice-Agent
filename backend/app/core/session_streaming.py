@@ -298,6 +298,7 @@ class VoiceSessionStreaming:
     
     async def _process_transcript_to_response(self, transcript: str):
         """Process a transcript directly through LLM->TTS (skip STT since we already have transcript)."""
+        needs_search = False
         try:
             if not transcript or len(transcript.strip()) < 2:
                 logger.info("Empty transcript, back to listening")
@@ -578,6 +579,8 @@ class VoiceSessionStreaming:
             
             # STT timing - with provider manager fallback
             metrics_collector.start_stage(correlation_id, "stt")
+            needs_search = False
+            transcript = ""
             try:
                 if self.use_provider_managers:
                     # Use provider manager with automatic fallback
@@ -654,8 +657,8 @@ class VoiceSessionStreaming:
                         if audio_data and not self.interrupted:
                             audio_base64 = base64.b64encode(audio_data).decode('utf-8')
                             await self.websocket.send_json({
-                                "type": "audio_response",
-                                "data": {"audio": audio_base64, "format": "wav"}
+                                "type": "audio",
+                                "data": audio_base64
                             })
                     except Exception as e:
                         logger.error(f"TTS error for cached response: {e}")
