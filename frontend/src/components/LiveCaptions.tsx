@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, memo } from 'react'
 import { useVoiceStore } from '@/store/voiceStore'
-import { Bot, User, Download, Sparkles } from 'lucide-react'
+import { Bot, User, Sparkles } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 
 interface Caption {
@@ -59,6 +59,9 @@ export default function LiveCaptions() {
   const { captions } = useVoiceStore()
   const scrollRef = useRef<HTMLDivElement>(null)
 
+  const captionsLength = captions.length;
+  const lastCaptionText = captions[captions.length - 1]?.text;
+
   useEffect(() => {
     if (scrollRef.current) {
       const { scrollHeight, clientHeight } = scrollRef.current;
@@ -67,7 +70,7 @@ export default function LiveCaptions() {
         behavior: 'smooth'
       });
     }
-  }, [captions.length, captions[captions.length - 1]?.text])
+  }, [captionsLength, lastCaptionText])
 
   return (
     <div className="h-full flex flex-col relative overflow-hidden">

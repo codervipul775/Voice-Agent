@@ -23,7 +23,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 }
             })
         }
-    }, [isOpen])
+    }, [isOpen, selectedDeviceId])
 
     if (!isOpen) return null
 
