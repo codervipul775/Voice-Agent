@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 
 export function useAudioPlayer() {
   const [isPlaying, setIsPlaying] = useState(false)
@@ -19,7 +19,7 @@ export function useAudioPlayer() {
     }
   }, [])
 
-  const processQueue = async () => {
+  const processQueue = useCallback(async () => {
     // Prevent concurrent processing
     if (isProcessingRef.current) {
       return
@@ -40,7 +40,7 @@ export function useAudioPlayer() {
     }
 
     if (!audioContextRef.current) {
-      console.error('AudioContext not initialized')
+
       isProcessingRef.current = false
       return
     }
@@ -77,7 +77,7 @@ export function useAudioPlayer() {
       })
 
     } catch (error) {
-      console.error('❌ Error playing audio:', error)
+      console.error(' Error playing audio:', error)
     }
 
     // Mark processing as done
@@ -89,9 +89,9 @@ export function useAudioPlayer() {
     } else {
       setIsPlaying(false)
     }
-  }
+  }, [])
 
-  const queueAudio = (audioData: ArrayBuffer) => {
+  const queueAudio = useCallback((audioData: ArrayBuffer) => {
     // Reset stopped flag when new audio comes in
     stoppedRef.current = false
     audioQueueRef.current.push(audioData)
@@ -100,11 +100,9 @@ export function useAudioPlayer() {
     if (!isProcessingRef.current) {
       processQueue()
     }
-  }
+  }, [processQueue])
 
-  const stopAudio = () => {
-    console.log('🛑 Stopping audio playback immediately')
-
+  const stopAudio = useCallback(() => {
     // Set stopped flag
     stoppedRef.current = true
 
@@ -123,7 +121,7 @@ export function useAudioPlayer() {
     audioQueueRef.current = []
     isProcessingRef.current = false
     setIsPlaying(false)
-  }
+  }, [])
 
   return {
     isPlaying,

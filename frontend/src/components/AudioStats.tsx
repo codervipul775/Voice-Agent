@@ -1,90 +1,80 @@
 'use client'
 
 import { useVoiceStore } from '@/store/voiceStore'
+import { motion } from 'framer-motion'
 
 export default function AudioStats() {
-  const { audioMetrics, vadStatus, isConnected } = useVoiceStore()
+    const { audioMetrics, vadStatus, isConnected } = useVoiceStore()
 
-  // Show simplified version if no metrics
-  if (!isConnected) return null
+    if (!isConnected) return null
 
-  if (!audioMetrics) {
-    return (
-      <div className="w-full">
-        <div className="flex items-center justify-between mb-3 text-xs">
-          <span className="text-slate-500 uppercase font-bold">Status</span>
-          <div className="flex items-center gap-2 px-2 py-0.5 rounded-full border bg-slate-800 border-slate-700 text-slate-400">
-            <span className="w-1.5 h-1.5 rounded-full bg-slate-500" />
-            Waiting for audio...
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  const getQualityColor = (score: number) => {
-    if (score >= 80) return 'text-emerald-400'
-    if (score >= 60) return 'text-yellow-400'
-    return 'text-rose-400'
-  }
-
-  return (
-    <div className="w-full">
-      {/* VAD Status Pill */}
-      <div className="flex items-center justify-between mb-3 text-xs">
-        <span className="text-slate-500 uppercase font-bold">Status</span>
-        <div className={`
-          flex items-center gap-2 px-2 py-0.5 rounded-full border
-          ${vadStatus?.is_speech
-            ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
-            : 'bg-slate-800 border-slate-700 text-slate-400'}
-        `}>
-          <span className={`w-1.5 h-1.5 rounded-full ${vadStatus?.is_speech ? 'bg-emerald-500 animate-pulse' : 'bg-slate-500'}`} />
-          {vadStatus?.is_speech ? 'Speech Detected' : 'Silence'}
-        </div>
-      </div>
-
-      {/* Main Grid */}
-      <div className="grid grid-cols-2 gap-3">
-
-        {/* Quality Score */}
-        <div className="bg-slate-950/30 border border-white/5 rounded-lg p-3 relative overflow-hidden">
-          <div className="absolute top-0 left-0 w-1 h-full bg-gradient-to-b from-emerald-500 to-cyan-500 opacity-50" />
-          <div className="flex flex-col h-full justify-between">
-            <span className="text-[10px] text-slate-500 uppercase font-bold">Signal Quality</span>
-            <div className="text-right">
-              <span className={`text-2xl font-mono font-bold ${getQualityColor(audioMetrics.quality_score)}`}>
-                {audioMetrics.quality_score}
-              </span>
-              <span className="text-[10px] text-slate-600 block leading-none">{audioMetrics.quality_label}</span>
+    if (!audioMetrics) {
+        return (
+            <div className="w-full flex items-center justify-center p-8 glass-pill opacity-20">
+                <span className="text-[10px] font-black tracking-[0.3em]">SYNCHRONIZING...</span>
             </div>
-          </div>
+        )
+    }
+
+    const getQualityColor = (score: number) => {
+        if (score >= 80) return 'text-cyan-400'
+        if (score >= 60) return 'text-amber-400'
+        return 'text-rose-400'
+    }
+
+    return (
+        <div className="w-full space-y-6">
+            {/* VAD Status Pill */}
+            <div className="flex items-center justify-between">
+                <span className="text-[9px] text-white/20 font-black uppercase tracking-[0.2em]">Neural State</span>
+                <motion.div
+                    animate={{ scale: vadStatus?.is_speech ? [1, 1.05, 1] : 1 }}
+                    className={`
+                px-3 py-1 rounded-full border glass-pill flex items-center gap-2
+                ${vadStatus?.is_speech ? 'border-cyan-500/30' : 'border-white/5'}
+            `}
+                >
+                    <div className={`w-1 h-1 rounded-full ${vadStatus?.is_speech ? 'bg-cyan-400 shadow-[0_0_10px_rgba(34,211,238,0.5)] animate-pulse' : 'bg-white/10'}`} />
+                    <span className={`text-[10px] font-black tracking-widest ${vadStatus?.is_speech ? 'text-cyan-400' : 'text-white/20'}`}>
+                        {vadStatus?.is_speech ? 'SPEECH_ACTIVE' : 'IDLE_SILENCE'}
+                    </span>
+                </motion.div>
+            </div>
+
+            {/* Main Grid */}
+            <div className="grid grid-cols-2 gap-4">
+                <div className="glass-panel p-5 rounded-3xl relative overflow-hidden group">
+                    <div className="absolute top-0 right-0 w-16 h-16 bg-gradient-to-br from-cyan-500/10 to-transparent pointer-events-none" />
+                    <span className="text-[8px] text-white/20 font-black uppercase tracking-widest mb-2 block">Integrity</span>
+                    <div className="flex items-baseline gap-1">
+                        <span className={`text-3xl font-heading font-black tracking-tighter ${getQualityColor(audioMetrics.quality_score)}`}>
+                            {audioMetrics.quality_score}
+                        </span>
+                        <span className="text-[10px] text-white/20 font-mono">%</span>
+                    </div>
+                    <div className="mt-2 h-1 bg-white/5 rounded-full overflow-hidden">
+                        <motion.div
+                            initial={{ width: 0 }}
+                            animate={{ width: `${audioMetrics.quality_score}%` }}
+                            className="h-full bg-cyan-400"
+                        />
+                    </div>
+                </div>
+
+                <div className="space-y-3">
+                    {[
+                        { label: 'SNR', val: `${audioMetrics.snr_db.toFixed(0)}dB`, color: 'text-cyan-400' },
+                        { label: 'RMS', val: `${(audioMetrics.rms * 100).toFixed(0)}%`, color: 'text-white/60' },
+                        { label: 'PEAK', val: `${(audioMetrics.peak * 100).toFixed(0)}%`, color: 'text-white/40' }
+                    ].map((stat, i) => (
+                        <div key={i} className="flex items-center justify-between p-3 rounded-2xl glass-pill">
+                            <span className="text-[8px] text-white/20 font-black tracking-widest uppercase">{stat.label}</span>
+                            <span className={`font-mono text-[11px] font-bold ${stat.color}`}>{stat.val}</span>
+                        </div>
+                    ))}
+                </div>
+            </div>
         </div>
-
-        {/* Mini Metrics */}
-        <div className="grid grid-rows-3 gap-1.5">
-          <div className="flex items-center justify-between px-2 py-1 bg-slate-950/30 rounded border border-white/5">
-            <span className="text-[10px] text-slate-500 uppercase">SNR</span>
-            <span className={`font-mono text-xs font-bold ${audioMetrics.snr_db > 20 ? 'text-emerald-400' : 'text-yellow-400'}`}>
-              {audioMetrics.snr_db.toFixed(0)}dB
-            </span>
-          </div>
-
-          <div className="flex items-center justify-between px-2 py-1 bg-slate-950/30 rounded border border-white/5">
-            <span className="text-[10px] text-slate-500 uppercase">Vol</span>
-            <span className="font-mono text-xs font-bold text-cyan-400">
-              {(audioMetrics.rms * 100).toFixed(0)}%
-            </span>
-          </div>
-
-          <div className="flex items-center justify-between px-2 py-1 bg-slate-950/30 rounded border border-white/5">
-            <span className="text-[10px] text-slate-500 uppercase">Peak</span>
-            <span className="font-mono text-xs font-bold text-slate-300">
-              {(audioMetrics.peak * 100).toFixed(0)}%
-            </span>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
+    )
 }
+

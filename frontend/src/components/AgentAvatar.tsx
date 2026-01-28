@@ -1,6 +1,8 @@
 'use client'
 
 import { VoiceState } from '@/store/voiceStore'
+import { motion, AnimatePresence, useSpring, useTransform } from 'framer-motion'
+import { useEffect } from 'react'
 
 interface AgentAvatarProps {
     state: VoiceState
@@ -8,47 +10,57 @@ interface AgentAvatarProps {
 }
 
 export default function AgentAvatar({ state, audioLevel }: AgentAvatarProps) {
+    // Smoothed motion value for audio level
+    const smoothLevel = useSpring(audioLevel, {
+        stiffness: 300,
+        damping: 30,
+        mass: 0.5
+    })
 
-    // Dynamic scale based on audio level
-    const audioScale = 1 + (audioLevel * 1.5) // Scale up to 2.5x
+    // Update spring whenever audioLevel prop changes
+    useEffect(() => {
+        smoothLevel.set(audioLevel)
+    }, [audioLevel, smoothLevel])
 
-    // Color & Glow Config
+    // Transform level to scale
+    const audioScale = useTransform(smoothLevel, [0, 1], [1, 1.8])
+
     const getConfig = () => {
         switch (state) {
             case 'listening':
                 return {
-                    ring: 'border-emerald-500/50',
-                    core: 'bg-emerald-500',
-                    glow: 'shadow-[0_0_80px_rgba(16,185,129,0.4)]',
-                    inner: 'bg-emerald-300'
+                    color: 'var(--accent-success)',
+                    glow: 'rgba(0, 255, 136, 0.4)',
+                    label: 'LISTENING',
+                    blur: 'blur-xl'
                 }
             case 'speaking':
                 return {
-                    ring: 'border-cyan-400/50',
-                    core: 'bg-gradient-to-br from-cyan-400 to-blue-600',
-                    glow: 'shadow-[0_0_100px_rgba(34,211,238,0.5)]',
-                    inner: 'bg-cyan-200'
+                    color: 'var(--accent-primary)',
+                    glow: 'rgba(0, 242, 255, 0.5)',
+                    label: 'SPEAKING',
+                    blur: 'blur-2xl'
                 }
             case 'thinking':
                 return {
-                    ring: 'border-indigo-500/50',
-                    core: 'bg-indigo-500',
-                    glow: 'shadow-[0_0_80px_rgba(99,102,241,0.4)]',
-                    inner: 'bg-indigo-300'
+                    color: 'var(--accent-secondary)',
+                    glow: 'rgba(112, 0, 255, 0.4)',
+                    label: 'THINKING',
+                    blur: 'blur-lg'
                 }
             case 'error':
                 return {
-                    ring: 'border-rose-500/50',
-                    core: 'bg-rose-500',
-                    glow: 'shadow-[0_0_80px_rgba(244,63,94,0.4)]',
-                    inner: 'bg-rose-300'
+                    color: 'var(--accent-error)',
+                    glow: 'rgba(255, 45, 85, 0.4)',
+                    label: 'ERROR',
+                    blur: 'blur-md'
                 }
-            default: // Idle
+            default:
                 return {
-                    ring: 'border-slate-800',
-                    core: 'bg-slate-800',
-                    glow: 'shadow-none',
-                    inner: 'bg-slate-700'
+                    color: '#475569',
+                    glow: 'rgba(71, 85, 105, 0.2)',
+                    label: 'IDLE',
+                    blur: 'blur-sm'
                 }
         }
     }
@@ -56,42 +68,94 @@ export default function AgentAvatar({ state, audioLevel }: AgentAvatarProps) {
     const config = getConfig()
 
     return (
-        <div className="relative flex items-center justify-center w-80 h-80">
-            {/* Outer Pulse Rings (when active) */}
-            {(state === 'speaking' || state === 'listening') && (
-                <>
-                    <div className={`absolute inset-0 rounded-full border-2 animate-[ping_3s_infinite] ${config.ring}`} />
-                    <div className={`absolute inset-8 rounded-full border animate-[ping_3s_infinite_1s] ${config.ring}`} />
-                </>
-            )}
-
-            {/* Main Core Orb */}
-            <div
-                className={`
-          relative z-10 
-          w-40 h-40 rounded-full 
-          flex items-center justify-center
-          transition-all duration-700 cubic-bezier(0.175, 0.885, 0.32, 1.275)
-          ${config.core}
-          ${config.glow}
-          border-4 border-white/20
-        `}
-                style={{
-                    transform: state === 'speaking' || state === 'listening' ? `scale(${audioScale})` : 'scale(1)'
+        <div className="relative flex items-center justify-center w-96 h-96">
+            {/* Ambient Base Glow */}
+            <motion.div
+                animate={{
+                    scale: [1, 1.2, 1],
+                    opacity: [0.1, 0.2, 0.1],
                 }}
+                transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
+                className="absolute inset-0 rounded-full"
+                style={{ backgroundColor: config.color, filter: 'blur(80px)' }}
+            />
+
+            {/* Pulsing Energy Rings */}
+            <AnimatePresence>
+                {(state === 'listening' || state === 'speaking') && (
+                    <>
+                        <motion.div
+                            initial={{ scale: 0.8, opacity: 0 }}
+                            animate={{ scale: 1.5, opacity: 0 }}
+                            exit={{ opacity: 0 }}
+                            transition={{ duration: 2, repeat: Infinity, ease: "easeOut" }}
+                            className="absolute inset-0 rounded-full border border-white/10"
+                        />
+                        <motion.div
+                            initial={{ scale: 0.8, opacity: 0 }}
+                            animate={{ scale: 2, opacity: 0 }}
+                            exit={{ opacity: 0 }}
+                            transition={{ duration: 3, repeat: Infinity, ease: "easeOut", delay: 0.5 }}
+                            className="absolute inset-0 rounded-full border border-white/5"
+                        />
+                    </>
+                )}
+            </AnimatePresence>
+
+            {/* Main Central Orb */}
+            <motion.div
+                style={{
+                    scale: audioScale,
+                }}
+                animate={{
+                    rotate: state === 'thinking' ? 360 : 0
+                }}
+                transition={{
+                    rotate: { duration: 4, repeat: Infinity, ease: "linear" }
+                }}
+                className="relative z-20 w-48 h-48 rounded-full shadow-2xl glass-panel group overflow-hidden"
             >
-                {/* Inner detail for depth */}
-                <div className={`w-[85%] h-[85%] rounded-full bg-gradient-to-tr from-white/30 to-transparent blur-[2px]`} />
+                {/* Internal Energy Fluid */}
+                <div
+                    className={`absolute inset-0 opacity-40 transition-colors duration-700 ${config.blur}`}
+                    style={{
+                        background: `radial-gradient(circle at 30% 30%, ${config.color}, transparent 70%)`
+                    }}
+                />
 
-                {/* Shiny point */}
-                <div className={`absolute top-[20%] left-[25%] w-4 h-4 rounded-full ${config.inner} blur-[8px] opacity-80`} />
-            </div>
+                {/* Rotating Scanline/Highlight */}
+                <div className="absolute inset-0 bg-gradient-to-tr from-white/10 via-transparent to-transparent rotate-45 pointer-events-none" />
 
-            {/* Thinking Spinners */}
-            {state === 'thinking' && (
-                <div className="absolute inset-10 rounded-full border-2 border-dashed border-indigo-400/50 animate-[spin_4s_linear_infinite]" />
-            )}
+                {/* Core Nucleus */}
+                <motion.div
+                    animate={{
+                        scale: [1, 1.1, 1],
+                    }}
+                    transition={{ duration: 2, repeat: Infinity }}
+                    className="absolute inset-[30%] rounded-full opacity-80"
+                    style={{
+                        background: `radial-gradient(circle, ${config.color} 0%, transparent 100%)`,
+                        boxShadow: `0 0 40px ${config.glow}`
+                    }}
+                />
 
+                {/* Cyber Mesh Texture */}
+                <div className="absolute inset-0 opacity-10 pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] mix-blend-overlay" />
+            </motion.div>
+
+            {/* Status Label - Floating beneath */}
+            <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="absolute bottom-[-10%] flex flex-col items-center"
+            >
+                <div className="h-[1px] w-12 bg-gradient-to-r from-transparent via-white/20 to-transparent mb-4" />
+                <span className="text-[10px] font-black tracking-[0.4em] text-white/40 uppercase">
+                    {config.label}
+                </span>
+            </motion.div>
         </div>
     )
 }
+
+

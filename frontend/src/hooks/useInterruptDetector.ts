@@ -12,13 +12,7 @@ interface UseInterruptDetectorProps {
     stopAudio: () => void
 }
 
-/**
- * Hook that monitors microphone input during AI playback
- * and triggers automatic interrupt when user starts speaking.
- * 
- * Uses adaptive threshold: measures baseline during AI speech
- * and triggers when volume spikes significantly above baseline.
- */
+
 export function useInterruptDetector({ stopAudio }: UseInterruptDetectorProps) {
     const { state, sendInterrupt } = useVoiceStore()
 
@@ -35,7 +29,7 @@ export function useInterruptDetector({ stopAudio }: UseInterruptDetectorProps) {
     const stopMonitoring = useCallback(() => {
         if (!isMonitoringRef.current) return
 
-        console.log('👂 Stopping interrupt detection')
+
         isMonitoringRef.current = false
         consecutiveFramesRef.current = 0
         baselineRef.current = 0
@@ -64,7 +58,7 @@ export function useInterruptDetector({ stopAudio }: UseInterruptDetectorProps) {
         if (isMonitoringRef.current) return
 
         try {
-            console.log('👂 Starting interrupt detection with adaptive threshold...')
+
 
             // Get mic access
             const stream = await navigator.mediaDevices.getUserMedia({
@@ -119,7 +113,7 @@ export function useInterruptDetector({ stopAudio }: UseInterruptDetectorProps) {
                 // Calculate baseline once after calibration
                 if (baselineRef.current === 0 && samplesRef.current.length > 0) {
                     baselineRef.current = samplesRef.current.reduce((a, b) => a + b, 0) / samplesRef.current.length
-                    console.log(`📊 Baseline established: ${baselineRef.current.toFixed(4)}`)
+
                 }
 
                 // Use adaptive threshold: must be significantly above baseline
@@ -128,10 +122,10 @@ export function useInterruptDetector({ stopAudio }: UseInterruptDetectorProps) {
                 // Check if above threshold
                 if (rms > adaptiveThreshold) {
                     consecutiveFramesRef.current++
-                    console.log(`🎤 Spike detected: ${rms.toFixed(3)} > ${adaptiveThreshold.toFixed(3)} (${consecutiveFramesRef.current}/${FRAMES_REQUIRED})`)
+
 
                     if (consecutiveFramesRef.current >= FRAMES_REQUIRED) {
-                        console.log('🗣️ INTERRUPT TRIGGERED! User speech detected over AI playback')
+
                         stopMonitoring()
                         stopAudio()
                         sendInterrupt()

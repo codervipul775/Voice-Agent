@@ -1,7 +1,7 @@
 'use client'
 
 import { useVoiceStore } from '@/store/voiceStore'
-import { WifiOff, RefreshCw, AlertCircle, CheckCircle2 } from 'lucide-react'
+import { WifiOff, RefreshCw, AlertCircle, Link } from 'lucide-react'
 
 interface ConnectionStatusProps {
   compact?: boolean
@@ -14,46 +14,38 @@ export default function ConnectionStatus({ compact = false }: ConnectionStatusPr
     if (state === 'reconnecting') {
       return {
         icon: RefreshCw,
-        text: `Reconnecting (${connectionState.attempts}/${connectionState.maxAttempts})`,
-        shortText: 'Reconnecting...',
+        text: `RECON`,
+        subText: `${connectionState.attempts}/${connectionState.maxAttempts}`,
         color: 'text-amber-400',
-        bgColor: 'bg-amber-500/10',
-        borderColor: 'border-amber-500/30',
         animate: 'animate-spin'
       }
     }
-    
+
     if (state === 'error') {
       return {
         icon: AlertCircle,
-        text: connectionState.lastError || 'Connection Error',
-        shortText: 'Error',
+        text: 'SIGNAL_ERROR',
+        subText: 'CRITICAL',
         color: 'text-rose-400',
-        bgColor: 'bg-rose-500/10',
-        borderColor: 'border-rose-500/30',
         animate: ''
       }
     }
-    
+
     if (isConnected) {
       return {
-        icon: CheckCircle2,
-        text: 'Connected',
-        shortText: 'Online',
-        color: 'text-emerald-400',
-        bgColor: 'bg-emerald-500/10',
-        borderColor: 'border-emerald-500/30',
+        icon: Link,
+        text: 'LINK_ACTIVE',
+        subText: 'SECURE',
+        color: 'text-cyan-400',
         animate: ''
       }
     }
-    
+
     return {
       icon: WifiOff,
-      text: 'Disconnected',
-      shortText: 'Offline',
-      color: 'text-slate-400',
-      bgColor: 'bg-slate-500/10',
-      borderColor: 'border-slate-500/30',
+      text: 'LINK_OFFLINE',
+      subText: 'STANDBY',
+      color: 'text-white/20',
       animate: ''
     }
   }
@@ -61,40 +53,25 @@ export default function ConnectionStatus({ compact = false }: ConnectionStatusPr
   const config = getStatusConfig()
   const Icon = config.icon
 
-  if (compact) {
-    return (
-      <div
-        className={`flex items-center gap-1.5 px-2 py-1 rounded-full ${config.bgColor} border ${config.borderColor}`}
-        role="status"
-        aria-live="polite"
-        aria-label={`Connection status: ${config.text}`}
-      >
-        <Icon className={`w-3 h-3 ${config.color} ${config.animate}`} />
-        <span className={`text-[10px] font-semibold uppercase tracking-wider ${config.color}`}>
-          {config.shortText}
-        </span>
-      </div>
-    )
-  }
-
   return (
     <div
-      className={`flex items-center gap-2 px-3 py-2 rounded-xl ${config.bgColor} border ${config.borderColor} transition-all duration-300`}
+      className={`flex items-center gap-3 px-4 py-2 rounded-2xl glass-pill transition-all duration-300`}
       role="status"
-      aria-live="polite"
-      aria-label={`Connection status: ${config.text}`}
     >
-      <Icon className={`w-4 h-4 ${config.color} ${config.animate}`} />
+      <div className={`p-1.5 rounded-lg bg-white/5 border border-white/5`}>
+        <Icon className={`w-3.5 h-3.5 ${config.color} ${config.animate}`} />
+      </div>
       <div className="flex flex-col">
-        <span className={`text-xs font-semibold ${config.color}`}>
+        <span className={`text-[9px] font-black tracking-[0.2em] leading-none ${config.color}`}>
           {config.text}
         </span>
-        {state === 'reconnecting' && connectionState.attempts > 0 && (
-          <span className="text-[10px] text-slate-500">
-            Attempt {connectionState.attempts} of {connectionState.maxAttempts}
+        {!compact && (
+          <span className="text-[8px] font-mono text-white/20 tracking-tighter mt-1">
+            {config.subText}
           </span>
         )}
       </div>
     </div>
   )
 }
+
