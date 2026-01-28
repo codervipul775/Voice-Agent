@@ -32,7 +32,7 @@ class DeepgramSTTService:
                 header = audio_bytes[:4]
                 logger.info(f"Audio header: {header.hex()}")
             
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with httpx.AsyncClient(timeout=10.0) as client:
                 # Auto-detect format based on header
                 content_type = "audio/webm"  # Default
                 if len(audio_bytes) > 4:

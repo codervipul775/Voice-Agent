@@ -27,7 +27,7 @@ class CartesiaTTSService:
             return self._generate_silence()
         
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with httpx.AsyncClient(timeout=10.0) as client:
                 headers = {
                     "X-API-Key": self.api_key,
                     "Cartesia-Version": "2024-06-10",

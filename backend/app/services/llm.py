@@ -38,10 +38,12 @@ class ToolCall:
 class GroqLLMService:
     """Groq LLM Service with streaming and function calling support"""
     
-    def __init__(self):
+    def __init__(self, fast_mode: bool = True):
         self.api_key = settings.GROQ_API_KEY
         self.base_url = "https://api.groq.com/openai/v1"
-        self.model = "llama-3.3-70b-versatile"
+        # Use faster model for lower latency (8B instant vs 70B versatile)
+        self.model = "llama-3.1-8b-instant" if fast_mode else "llama-3.3-70b-versatile"
+        self.fast_mode = fast_mode
         
     async def complete(self, messages: List[Dict[str, str]]) -> str:
         """Non-streaming completion (for compatibility)"""
@@ -59,7 +61,7 @@ class GroqLLMService:
                     }
                 ] + messages
             
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with httpx.AsyncClient(timeout=10.0) as client:
                 headers = {
                     "Authorization": f"Bearer {self.api_key}",
                     "Content-Type": "application/json"
@@ -208,7 +210,7 @@ Use NO when:
                     }
                 ] + messages
             
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with httpx.AsyncClient(timeout=10.0) as client:
                 headers = {
                     "Authorization": f"Bearer {self.api_key}",
                     "Content-Type": "application/json"
@@ -280,7 +282,7 @@ When answering:
             else:
                 messages[0]["content"] = system_content
             
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with httpx.AsyncClient(timeout=10.0) as client:
                 headers = {
                     "Authorization": f"Bearer {self.api_key}",
                     "Content-Type": "application/json"
