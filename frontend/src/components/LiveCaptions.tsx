@@ -96,6 +96,7 @@ export default function LiveCaptions() {
   const [isExportOpen, setIsExportOpen] = useState(false)
   const exportRef = useRef<HTMLDivElement>(null)
 
+  const lastCaptionText = captions[captions.length - 1]?.text
   useEffect(() => {
     if (scrollRef.current) {
       const { scrollHeight, clientHeight } = scrollRef.current;
@@ -104,7 +105,7 @@ export default function LiveCaptions() {
         behavior: 'smooth'
       });
     }
-  }, [captions.length, captions[captions.length - 1]?.text, interimText])
+  }, [captions.length, lastCaptionText, interimText])
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
