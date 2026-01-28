@@ -53,6 +53,8 @@ const ChatBubble = memo(({ caption }: { caption: Caption }) => (
 
 ChatBubble.displayName = 'ChatBubble';
 
+import TranscriptExport from './TranscriptExport'
+
 export default function LiveCaptions() {
   const { captions } = useVoiceStore()
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -66,20 +68,6 @@ export default function LiveCaptions() {
       });
     }
   }, [captions.length, captions[captions.length - 1]?.text])
-
-  const exportTranscript = () => {
-    const text = captions.map(c =>
-      `[${new Date(c.timestamp).toLocaleTimeString()}] ${c.speaker === 'user' ? 'You' : 'AI'}: ${c.text}`
-    ).join('\n')
-
-    const blob = new Blob([text], { type: 'text/plain' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `voice-transcript-${Date.now()}.txt`
-    a.click()
-    URL.revokeObjectURL(url)
-  }
 
   return (
     <div className="h-full flex flex-col relative overflow-hidden">
@@ -110,16 +98,11 @@ export default function LiveCaptions() {
       {/* Action Bar */}
       {captions.length > 0 && (
         <div className="pt-4 border-t border-white/5 bg-gradient-to-t from-black/20 to-transparent">
-          <button
-            onClick={exportTranscript}
-            className="w-full py-2.5 px-4 rounded-xl flex items-center justify-center gap-2 text-[10px] font-black tracking-[0.2em] text-white/40 hover:text-white/80 hover:bg-white/5 transition-all glass-pill"
-          >
-            <Download className="w-3.5 h-3.5" />
-            EXPORT SIGNAL LOG
-          </button>
+          <TranscriptExport />
         </div>
       )}
     </div>
   )
 }
+
 
