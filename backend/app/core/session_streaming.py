@@ -1,6 +1,7 @@
 """
 Voice Session with Streaming Support and Audio Metrics
 """
+import asyncio
 import base64
 import logging
 import time
@@ -34,8 +35,8 @@ class VoiceSessionStreaming:
     """
     
     # Configuration
-    SILENCE_THRESHOLD = 0.02  # RMS below this = silence
-    SILENCE_DURATION = 2.5    # Seconds of silence to trigger processing
+    SILENCE_THRESHOLD = 0.03  # RMS below this = silence (increased to filter noise)
+    SILENCE_DURATION = 1.5    # Seconds of silence to trigger processing (reduced for faster response)
     MIN_SPEECH_CHUNKS = 1     # Minimum chunks with speech before considering it a turn
     
     def __init__(
@@ -87,6 +88,7 @@ class VoiceSessionStreaming:
         self.speech_chunk_count: int = 0
         self.last_speech_time: float = 0
         self.silence_start_time: float = 0
+        self._silence_check_task: Optional[asyncio.Task] = None  # For fallback VAD
         
     async def send_state_update(self, state: str):
         """Send state update to frontend"""
@@ -180,39 +182,225 @@ class VoiceSessionStreaming:
             return False
         return audio_data[:4] == b'\x1a\x45\xdf\xa3'
     
+    def _check_ffprobe_available(self) -> bool:
+        """Check if ffprobe is available on the system."""
+        import shutil
+        return shutil.which("ffprobe") is not None
+    
+    async def _silence_timeout_handler(self, timeout: float = 2.0):
+        """
+        Background task that processes audio after silence timeout.
+        Triggered when no new chunks arrive for 'timeout' seconds.
+        """
+        try:
+            await asyncio.sleep(timeout)
+            
+            # Check if we still have chunks to process and no new chunks arrived
+            if len(self.audio_chunks) > 0 and not self.processing_audio:
+                elapsed = time.time() - self.last_speech_time
+                if elapsed >= timeout - 0.1:  # Small margin for timing
+                    logger.info(f"⏱️ Silence timeout ({elapsed:.1f}s): Processing {len(self.audio_chunks)} chunks")
+                    await self._process_accumulated_audio()
+        except asyncio.CancelledError:
+            # Task was cancelled (new chunk arrived), that's expected
+            pass
+        except Exception as e:
+            logger.error(f"Error in silence timeout handler: {e}")
+    
+    def _cancel_silence_check(self):
+        """Cancel any pending silence check task."""
+        if self._silence_check_task and not self._silence_check_task.done():
+            self._silence_check_task.cancel()
+            self._silence_check_task = None
+    
+    def _schedule_silence_check(self, timeout: float = 2.0):
+        """Schedule a silence check after timeout seconds."""
+        self._cancel_silence_check()
+        self._silence_check_task = asyncio.create_task(
+            self._silence_timeout_handler(timeout)
+        )
+    
     def _concatenate_audio_chunks(self, chunks: List[bytes]) -> Optional[bytes]:
         """Concatenate multiple WebM audio chunks into a single audio file."""
         try:
             if not chunks:
                 return None
             
-            combined = AudioSegment.empty()
-            successful_chunks = 0
+            # Only attempt merging if ffprobe is available
+            # Raw byte concatenation does NOT work for WebM - Deepgram only reads first chunk
+            if not self._check_ffprobe_available():
+                logger.warning("⚠️ ffprobe not available - using parallel chunk transcription")
+                return None  # Triggers parallel chunk-by-chunk transcription
             
-            for i, chunk in enumerate(chunks):
-                try:
-                    audio = AudioSegment.from_file(io.BytesIO(chunk), format="webm")
-                    combined += audio
-                    successful_chunks += 1
-                except Exception as e:
-                    logger.warning(f"Failed to process chunk {i}: {e}")
-                    continue
+            # ffprobe is available, use pydub to properly merge
+            try:
+                combined = AudioSegment.empty()
+                successful_chunks = 0
+                
+                for i, chunk in enumerate(chunks):
+                    try:
+                        audio = AudioSegment.from_file(io.BytesIO(chunk), format="webm")
+                        combined += audio
+                        successful_chunks += 1
+                    except Exception as e:
+                        logger.warning(f"Failed to process chunk {i}: {e}")
+                        continue
+                
+                if successful_chunks > 0:
+                    logger.info(f"✅ Concatenated {successful_chunks}/{len(chunks)} chunks using ffmpeg, duration: {len(combined)}ms")
+                    output = io.BytesIO()
+                    combined = combined.set_frame_rate(16000).set_channels(1)
+                    combined.export(output, format="wav")
+                    return output.getvalue()
+            except Exception as e:
+                logger.warning(f"ffmpeg concatenation failed: {e}")
             
-            if successful_chunks == 0:
-                logger.error("No chunks could be processed")
-                return None
-            
-            logger.info(f"✅ Concatenated {successful_chunks}/{len(chunks)} chunks, duration: {len(combined)}ms")
-            
-            # Export as WAV for Deepgram
-            output = io.BytesIO()
-            combined = combined.set_frame_rate(16000).set_channels(1)
-            combined.export(output, format="wav")
-            return output.getvalue()
+            return None  # Fall back to parallel chunk transcription
             
         except Exception as e:
             logger.error(f"Error concatenating audio: {e}", exc_info=True)
             return None
+    
+    async def _transcribe_chunks_individually(self, chunks: List[bytes]) -> Optional[str]:
+        """Fallback: Transcribe all WebM chunks in parallel and combine transcripts."""
+        try:
+            if not chunks:
+                return None
+                
+            async def transcribe_one(i: int, chunk: bytes) -> Optional[str]:
+                if len(chunk) < 500: # Slightly lower threshold
+                    return None
+                try:
+                    if self.use_provider_managers:
+                        return await self.stt_manager.execute(chunk)
+                    return await self.stt_service.transcribe(chunk)
+                except Exception as e:
+                    logger.warning(f"Chunk {i} failed: {e}")
+                    return None
+
+            # CRITICAL: Process all chunks in PARALLEL to avoid sequential delay
+            tasks = [transcribe_one(i, chunk) for i, chunk in enumerate(chunks)]
+            results = await asyncio.gather(*tasks)
+            transcripts = [t.strip() for t in results if t and t.strip()]
+            
+            combined_transcript = " ".join(transcripts)
+            logger.info(f"📝 Combined transcript from {len(transcripts)} chunks: '{combined_transcript}'")
+            return combined_transcript
+            
+        except Exception as e:
+            logger.error(f"Error in chunk-by-chunk transcription: {e}", exc_info=True)
+            return None
+    
+    async def _process_transcript_to_response(self, transcript: str):
+        """Process a transcript directly through LLM->TTS (skip STT since we already have transcript)."""
+        needs_search = False
+        try:
+            if not transcript or len(transcript.strip()) < 2:
+                logger.info("Empty transcript, back to listening")
+                await self.send_state_update("listening")
+                return
+            
+            correlation_id = str(uuid.uuid4())[:8]
+            metrics_collector.start_request(correlation_id, self.session_id, self.user_id or "")
+            
+            await self.send_state_update("thinking")
+            logger.info(f"🎤 [{correlation_id}] Processing transcript: '{transcript}'")
+            
+            user_msg_id = f"user_{int(time.time()*1000)}"
+            await self.send_transcript_update("user", transcript, is_final=True, message_id=user_msg_id)
+            self.conversation_history.append({"role": "user", "content": transcript})
+            
+            # Save user message
+            try:
+                await self.memory.save_message(role="user", content=transcript, metadata={"correlation_id": correlation_id})
+            except Exception as e:
+                logger.warning(f"Failed to save user message: {e}")
+            
+            # LLM streaming
+            logger.info(f"🤖 [{correlation_id}] LLM streaming...")
+            metrics_collector.start_stage(correlation_id, "llm")
+            
+            full_response = ""
+            sentence_buffer = ""
+            first_audio_sent = False
+            assistant_msg_id = f"assistant_{int(time.time()*1000)}"
+            
+            # Get token generator
+            if self.use_provider_managers:
+                llm_provider = self.llm_manager.current_provider
+                if llm_provider:
+                    token_generator = llm_provider.stream_complete(self.conversation_history)
+                else:
+                    raise Exception("No LLM provider available")
+            else:
+                token_generator = self.llm_service.stream_complete(self.conversation_history)
+            
+            async for token in token_generator:
+                if self.interrupted:
+                    logger.info("🛑 Interrupted during LLM streaming")
+                    break
+                
+                full_response += token
+                sentence_buffer += token
+                
+                await self.send_transcript_update("assistant", full_response, is_final=False, message_id=assistant_msg_id)
+                
+                if token in ['.', '!', '?', '\n'] and len(sentence_buffer.strip()) > 10:
+                    if self.interrupted:
+                        break
+                    
+                    if not first_audio_sent:
+                        await self.send_state_update("speaking")
+                        first_audio_sent = True
+                    
+                    sentence = sentence_buffer.strip()
+                    logger.info(f"🔊 TTS: {sentence[:50]}...")
+                    
+                    try:
+                        if self.use_provider_managers:
+                            audio_data = await self.tts_manager.execute(sentence)
+                        else:
+                            audio_data = await self.tts_service.synthesize(sentence)
+                        if audio_data and not self.interrupted:
+                            audio_base64 = base64.b64encode(audio_data).decode('utf-8')
+                            await self.websocket.send_json({"type": "audio", "data": audio_base64})
+                    except Exception as e:
+                        logger.error(f"TTS error: {e}")
+                    
+                    sentence_buffer = ""
+            
+            metrics_collector.end_stage(correlation_id, "llm")
+            
+            # Final sentence
+            if sentence_buffer.strip() and not self.interrupted:
+                if not first_audio_sent:
+                    await self.send_state_update("speaking")
+                try:
+                    if self.use_provider_managers:
+                        audio_data = await self.tts_manager.execute(sentence_buffer.strip())
+                    else:
+                        audio_data = await self.tts_service.synthesize(sentence_buffer.strip())
+                    if audio_data and not self.interrupted:
+                        audio_base64 = base64.b64encode(audio_data).decode('utf-8')
+                        await self.websocket.send_json({"type": "audio", "data": audio_base64})
+                except Exception as e:
+                    logger.error(f"TTS error: {e}")
+            
+            # Finalize
+            await self.send_transcript_update("assistant", full_response, is_final=True, message_id=assistant_msg_id)
+            self.conversation_history.append({"role": "assistant", "content": full_response})
+            
+            try:
+                await self.memory.save_message(role="assistant", content=full_response, metadata={"correlation_id": correlation_id})
+            except Exception as e:
+                logger.warning(f"Failed to save response: {e}")
+            
+            metrics_collector.end_request(correlation_id, success=True)
+            
+        except Exception as e:
+            logger.error(f"Error in _process_transcript_to_response: {e}", exc_info=True)
+            await self.send_error(str(e))
+
     
     async def process_audio_chunk(self, audio_data: bytes):
         """Process incoming audio chunk with true VAD."""
@@ -252,12 +440,16 @@ class VoiceSessionStreaming:
                 metrics = self.audio_metrics_service.analyze(audio_data)
                 if metrics["quality_score"] > 0:
                     await self.send_audio_metrics(metrics)
-                    current_rms = metrics["rms"]
-                    is_speech = current_rms > self.SILENCE_THRESHOLD
-                else:
-                    # Fallback mode: ffprobe not available
+                    
+                # Check if using fallback mode (RMS values are unreliable)
+                if metrics.get("is_fallback", False):
+                    # Fallback mode: ffprobe not available, RMS is from byte-estimation
                     using_fallback = True
                     is_speech = True  # Assume speech in fallback mode
+                else:
+                    # Normal mode: Use accurate RMS for silence detection
+                    current_rms = metrics["rms"]
+                    is_speech = current_rms > self.SILENCE_THRESHOLD
             else:
                 using_fallback = True
                 is_speech = True
@@ -277,20 +469,17 @@ class VoiceSessionStreaming:
             # Store the chunk for VAD mode
             self.audio_chunks.append(audio_data)
             
-            # FALLBACK MODE: Timer-based processing (since we can't detect silence)
+            # FALLBACK MODE: Silence timeout-based processing (since we can't detect silence via RMS)
             if using_fallback:
                 self.speech_detected = True
                 self.speech_chunk_count += 1
+                self.last_speech_time = now  # Track when we last received a chunk
                 await self.send_vad_status(is_speech=True)
                 
-                # Process after accumulating enough audio (6 chunks = ~9 seconds at 1.5s/chunk)
-                # Or if we have minimum chunks and haven't received new audio in a while
-                MAX_CHUNKS_FALLBACK = 6
-                if len(self.audio_chunks) >= MAX_CHUNKS_FALLBACK:
-                    logger.info(f"⏱️ Fallback: Processing {len(self.audio_chunks)} chunks (timer-based)")
-                    await self._process_accumulated_audio()
-                else:
-                    logger.info(f"📦 Fallback mode: {len(self.audio_chunks)}/{MAX_CHUNKS_FALLBACK} chunks")
+                # Schedule silence check - will be cancelled if another chunk arrives
+                # If no more chunks arrive within 2 seconds, audio will be processed
+                self._schedule_silence_check(timeout=2.0)
+                logger.info(f"📦 Fallback mode: {len(self.audio_chunks)} chunks (waiting for silence)")
                 return
             
             # NORMAL MODE: RMS-based speech detection
@@ -339,25 +528,32 @@ class VoiceSessionStreaming:
         self.speech_chunk_count = 0
         self.silence_start_time = 0
         
-        logger.info(f"📦 Concatenating {len(chunks_to_process)} audio chunks...")
-        audio_to_process = self._concatenate_audio_chunks(chunks_to_process)
-        
-        if not audio_to_process:
-            logger.error("Failed to concatenate audio")
-            self.processing_audio = False
-            await self.send_state_update("listening")
-            return
-        
-        logger.info(f"📤 Sending concatenated audio: {len(audio_to_process)} bytes")
-        
         try:
-            await self.process_turn_with_streaming(audio_to_process)
+            logger.info(f"📦 Processing {len(chunks_to_process)} audio chunks...")
+            audio_to_process = self._concatenate_audio_chunks(chunks_to_process)
+            
+            if audio_to_process:
+                # ffprobe available - use concatenated audio
+                logger.info(f"📤 Sending concatenated audio: {len(audio_to_process)} bytes")
+                await self.process_turn_with_streaming(audio_to_process)
+            else:
+                # ffprobe not available - transcribe each chunk individually
+                logger.info(f"📝 Using chunk-by-chunk transcription for {len(chunks_to_process)} chunks")
+                transcript = await self._transcribe_chunks_individually(chunks_to_process)
+                
+                if transcript:
+                    # Skip STT (already done), go directly to LLM -> TTS
+                    await self._process_transcript_to_response(transcript)
+                else:
+                    logger.warning("No transcript from chunk-by-chunk processing")
+                    
         except Exception as e:
             logger.error(f"Error: {e}", exc_info=True)
             await self.send_error(str(e))
         finally:
             self.processing_audio = False
             await self.send_state_update("listening")
+
     
     async def process_turn_with_streaming(self, audio_bytes: bytes):
         """Process a complete turn with streaming LLM and sentence-by-sentence TTS"""
@@ -378,6 +574,8 @@ class VoiceSessionStreaming:
             
             # STT timing - with provider manager fallback
             metrics_collector.start_stage(correlation_id, "stt")
+            needs_search = False
+            transcript = ""
             try:
                 if self.use_provider_managers:
                     # Use provider manager with automatic fallback
@@ -454,8 +652,8 @@ class VoiceSessionStreaming:
                         if audio_data and not self.interrupted:
                             audio_base64 = base64.b64encode(audio_data).decode('utf-8')
                             await self.websocket.send_json({
-                                "type": "audio_response",
-                                "data": {"audio": audio_base64, "format": "wav"}
+                                "type": "audio",
+                                "data": audio_base64
                             })
                     except Exception as e:
                         logger.error(f"TTS error for cached response: {e}")
