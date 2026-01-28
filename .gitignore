@@ -74,10 +74,3 @@ tmp/
 temp/
 *.tmp
 
-# Documentation (keeping only README.md)
-AUDIO_FIX.md
-NEXT_STEPS.md
-PROGRESS.md
-PROJECT_PLAN.md
-QUICKSTART.md
-START_HERE.md

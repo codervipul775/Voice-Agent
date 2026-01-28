@@ -53,11 +53,31 @@ export function useAudioRecorder() {
   }, [isRecording])
 
   // Cleanup on unmount
+  const cleanup = useCallback(() => {
+    isRecordingRef.current = false
+
+    if (sourceNodeRef.current) {
+      sourceNodeRef.current.disconnect()
+      sourceNodeRef.current = null
+    }
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach(track => track.stop())
+      mediaStreamRef.current = null
+    }
+    if (audioContextRef.current?.state !== 'closed') {
+      audioContextRef.current?.close()
+    }
+    analyserRef.current = null
+    audioContextRef.current = null
+    mediaRecorderRef.current = null
+    setAudioLevel(0)
+  }, [])
+
   useEffect(() => {
     return () => {
       cleanup()
     }
-  }, [])
+  }, [cleanup])
 
   // Create a complete WebM recording and send it
   const recordAndSendChunk = useCallback(async (stream: MediaStream, durationMs: number): Promise<void> => {
@@ -78,7 +98,6 @@ export function useAudioRecorder() {
       recorder.onstop = () => {
         if (chunks.length > 0) {
           const blob = new Blob(chunks, { type: 'audio/webm' })
-          console.log(`📤 Sending chunk: ${blob.size} bytes`)
           sendAudio(blob)
         }
         resolve()
@@ -94,7 +113,7 @@ export function useAudioRecorder() {
     })
   }, [sendAudio])
 
-  const startRecording = async () => {
+  const startRecording = useCallback(async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -127,12 +146,12 @@ export function useAudioRecorder() {
       analyserRef.current.smoothingTimeConstant = 0.8
       source.connect(analyserRef.current)
 
-      console.log('🎤 Microphone activated')
+
       setIsRecording(true)
 
       if (vadMode) {
         // VAD MODE: Send chunks continuously (1.5s each)
-        console.log('🎙️ VAD mode: Streaming 1.5-second chunks for silence detection')
+
 
         const recordLoop = async () => {
           while (isRecordingRef.current && mediaStreamRef.current) {
@@ -157,16 +176,16 @@ export function useAudioRecorder() {
         mediaRecorder.ondataavailable = (event) => {
           if (event.data.size > 0) {
             chunks.push(event.data)
-            console.log('📦 Collected chunk:', event.data.size, 'bytes')
+
           }
         }
 
         mediaRecorder.onstop = async () => {
-          console.log('🎤 Recording stopped, chunks:', chunks.length)
+
 
           if (chunks.length > 0) {
             const audioBlob = new Blob(chunks, { type: 'audio/webm' })
-            console.log('📤 Sending audio:', audioBlob.size, 'bytes')
+
             sendAudio(audioBlob)
           }
 
@@ -176,7 +195,7 @@ export function useAudioRecorder() {
         }
 
         mediaRecorder.start(100)
-        console.log('🎙️ Push-to-talk: Recording')
+
       }
 
     } catch (error) {
@@ -184,10 +203,9 @@ export function useAudioRecorder() {
       setIsRecording(false)
       isRecordingRef.current = false
     }
-  }
+  }, [vadMode, recordAndSendChunk, sendAudio, cleanup])
 
-  const stopRecording = () => {
-    console.log('🛑 Stopping recording')
+  const stopRecording = useCallback(() => {
     isRecordingRef.current = false
 
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
@@ -198,37 +216,14 @@ export function useAudioRecorder() {
       setIsRecording(false)
       cleanup()
     }
-  }
+  }, [vadMode, cleanup])
 
-  const cleanup = () => {
-    isRecordingRef.current = false
-
-    if (sourceNodeRef.current) {
-      sourceNodeRef.current.disconnect()
-      sourceNodeRef.current = null
-    }
-    if (mediaStreamRef.current) {
-      mediaStreamRef.current.getTracks().forEach(track => track.stop())
-      mediaStreamRef.current = null
-    }
-    if (audioContextRef.current?.state !== 'closed') {
-      audioContextRef.current?.close()
-    }
-    analyserRef.current = null
-    audioContextRef.current = null
-    mediaRecorderRef.current = null
-    setAudioLevel(0)
-    console.log('🔇 Microphone deactivated')
-  }
-
-  const toggleVadMode = () => {
+  const toggleVadMode = useCallback(() => {
     if (isRecording) {
-      console.log('⚠️ Cannot toggle while recording')
       return
     }
-    setVadMode(!vadMode)
-    console.log('🔄 Mode:', !vadMode ? 'VAD' : 'Push-to-Talk')
-  }
+    setVadMode((prev) => !prev)
+  }, [isRecording])
 
   return {
     isRecording,

@@ -45,7 +45,7 @@ interface MetricsDashboardProps {
   onClose: () => void;
 }
 
-const MetricsDashboard: React.FC<MetricsDashboardProps> = ({ isOpen, onClose }) => {
+const MetricsDashboard = React.forwardRef<HTMLElement, MetricsDashboardProps>(({ isOpen, onClose }, ref) => {
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
@@ -146,6 +146,7 @@ const MetricsDashboard: React.FC<MetricsDashboardProps> = ({ isOpen, onClose }) 
       {isOpen && (
         <motion.aside
           key="metrics-dashboard"
+          ref={ref as React.Ref<HTMLElement>}
           initial={{ x: 400, opacity: 0, scale: 0.95 }}
           animate={{ x: 0, opacity: 1, scale: 1 }}
           exit={{ x: 400, opacity: 0, scale: 0.95 }}
@@ -253,7 +254,9 @@ const MetricsDashboard: React.FC<MetricsDashboardProps> = ({ isOpen, onClose }) 
       )}
     </AnimatePresence>
   );
-};
+});
+
+MetricsDashboard.displayName = 'MetricsDashboard';
 
 export default MetricsDashboard;
 

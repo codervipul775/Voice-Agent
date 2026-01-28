@@ -1,8 +1,8 @@
 'use client'
 
-import { useEffect, useRef, memo } from 'react'
+import { useEffect, useRef, memo, useState } from 'react'
 import { useVoiceStore } from '@/store/voiceStore'
-import { Bot, User, Download, Sparkles, Mic } from 'lucide-react'
+import { Bot, User, Download, Sparkles, Mic, FileText, Code, Table, ChevronDown } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 
 interface Caption {
@@ -93,6 +93,9 @@ export default function LiveCaptions() {
   const { captions, interimText } = useVoiceStore()
   const scrollRef = useRef<HTMLDivElement>(null)
 
+  const [isExportOpen, setIsExportOpen] = useState(false)
+  const exportRef = useRef<HTMLDivElement>(null)
+
   useEffect(() => {
     if (scrollRef.current) {
       const { scrollHeight, clientHeight } = scrollRef.current;
@@ -103,18 +106,49 @@ export default function LiveCaptions() {
     }
   }, [captions.length, captions[captions.length - 1]?.text, interimText])
 
-  const exportTranscript = () => {
-    const text = captions.map(c =>
-      `[${new Date(c.timestamp).toLocaleTimeString()}] ${c.speaker === 'user' ? 'You' : 'AI'}: ${c.text}`
-    ).join('\n')
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (exportRef.current && !exportRef.current.contains(event.target as Node)) {
+        setIsExportOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
-    const blob = new Blob([text], { type: 'text/plain' })
+  const downloadFile = (content: string, type: string, extension: string) => {
+    const blob = new Blob([content], { type })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `voice-transcript-${Date.now()}.txt`
+    a.download = `voice-transcript-${Date.now()}.${extension}`
     a.click()
     URL.revokeObjectURL(url)
+    setIsExportOpen(false)
+  }
+
+  const exportAsText = () => {
+    const text = captions.map(c =>
+      `[${new Date(c.timestamp).toLocaleTimeString()}] ${c.speaker === 'user' ? 'You' : 'AI'}: ${c.text}`
+    ).join('\n')
+    downloadFile(text, 'text/plain', 'txt')
+  }
+
+  const exportAsJSON = () => {
+    const json = JSON.stringify(captions, null, 2)
+    downloadFile(json, 'application/json', 'json')
+  }
+
+  const exportAsCSV = () => {
+    const headers = 'Timestamp,Speaker,Message\n'
+    const rows = captions.map(c => {
+      const time = new Date(c.timestamp).toLocaleTimeString()
+      const speaker = c.speaker === 'user' ? 'User' : 'Assistant'
+      // Escape quotes and wrap in quotes for CSV safety
+      const text = `"${c.text.replace(/"/g, '""')}"`
+      return `${time},${speaker},${text}`
+    }).join('\n')
+    downloadFile(headers + rows, 'text/csv', 'csv')
   }
 
   return (
@@ -151,14 +185,67 @@ export default function LiveCaptions() {
 
       {/* Action Bar */}
       {captions.length > 0 && (
-        <div className="pt-4 border-t border-white/5 bg-gradient-to-t from-black/20 to-transparent">
+        <div className="pt-4 border-t border-white/5 bg-gradient-to-t from-black/20 to-transparent relative" ref={exportRef}>
           <button
-            onClick={exportTranscript}
+            onClick={() => setIsExportOpen(!isExportOpen)}
             className="w-full py-2.5 px-4 rounded-xl flex items-center justify-center gap-2 text-[10px] font-black tracking-[0.2em] text-white/40 hover:text-white/80 hover:bg-white/5 transition-all glass-pill"
           >
             <Download className="w-3.5 h-3.5" />
             EXPORT SIGNAL LOG
+            <ChevronDown className={`w-3 h-3 transition-transform ${isExportOpen ? 'rotate-180' : ''}`} />
           </button>
+
+          <AnimatePresence>
+            {isExportOpen && (
+              <motion.div
+                initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                className="absolute bottom-full left-0 right-0 mb-4 p-2 glass-panel rounded-2xl z-30 shadow-2xl border-white/10"
+              >
+                <div className="flex flex-col gap-1">
+                  <button
+                    onClick={exportAsText}
+                    className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-white/5 transition-colors text-left group"
+                  >
+                    <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center group-hover:bg-blue-500/20 transition-colors">
+                      <FileText className="w-4 h-4 text-blue-400" />
+                    </div>
+                    <div>
+                      <div className="text-[10px] font-black text-white/90 tracking-wider">PLAIN TEXT</div>
+                      <div className="text-[8px] font-bold text-white/20 tracking-widest uppercase">.txt format</div>
+                    </div>
+                  </button>
+
+                  <button
+                    onClick={exportAsJSON}
+                    className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-white/5 transition-colors text-left group"
+                  >
+                    <div className="w-8 h-8 rounded-lg bg-purple-500/10 flex items-center justify-center group-hover:bg-purple-500/20 transition-colors">
+                      <Code className="w-4 h-4 text-purple-400" />
+                    </div>
+                    <div>
+                      <div className="text-[10px] font-black text-white/90 tracking-wider">RAW DATA</div>
+                      <div className="text-[8px] font-bold text-white/20 tracking-widest uppercase">.json format</div>
+                    </div>
+                  </button>
+
+                  <button
+                    onClick={exportAsCSV}
+                    className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-white/5 transition-colors text-left group"
+                  >
+                    <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center group-hover:bg-emerald-500/20 transition-colors">
+                      <Table className="w-4 h-4 text-emerald-400" />
+                    </div>
+                    <div>
+                      <div className="text-[10px] font-black text-white/90 tracking-wider">STRUCTURED</div>
+                      <div className="text-[8px] font-bold text-white/20 tracking-widest uppercase">.csv format</div>
+                    </div>
+                  </button>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       )}
     </div>

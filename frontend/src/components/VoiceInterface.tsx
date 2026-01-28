@@ -27,8 +27,11 @@ export default function VoiceInterface() {
 
   useEffect(() => {
     setSessionId(crypto.randomUUID())
-    return () => cleanup()
   }, [])
+
+  useEffect(() => {
+    return () => cleanup()
+  }, [cleanup])
 
   useEffect(() => {
     setAudioCallback((audioDataBase64: string) => {
@@ -43,7 +46,7 @@ export default function VoiceInterface() {
         console.error('Error decoding audio:', error)
       }
     })
-  }, [])
+  }, [queueAudio, setAudioCallback])
 
   const handleToggleConnection = async () => {
     if (state === 'speaking') {
@@ -64,7 +67,7 @@ export default function VoiceInterface() {
   }
 
   return (
-    <div className="h-screen w-full flex bg-black overflow-hidden relative font-sans text-slate-200">
+    <div className="h-screen w-full flex bg-[#02040a] overflow-hidden relative font-sans text-slate-200">
 
       {/* Visual Identity Layer */}
       <div className="mesh-gradient opacity-40" />
@@ -88,7 +91,7 @@ export default function VoiceInterface() {
             opacity: [0.1, 0.2, 0.1]
           }}
           transition={{ duration: 15, repeat: Infinity }}
-          className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-purple-500/10 blur-[120px] rounded-full"
+          className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-cyan-500/5 blur-[120px] rounded-full"
         />
       </div>
 
