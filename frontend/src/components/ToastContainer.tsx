@@ -1,7 +1,6 @@
 'use client'
 
 import { useToastStore, ToastType } from '@/store/toastStore'
-import { div } from 'framer-motion/client'
 import { X, CheckCircle, AlertCircle, AlertTriangle, Info } from 'lucide-react'
 
 const iconMap: Record<ToastType, React.ReactNode> = {
