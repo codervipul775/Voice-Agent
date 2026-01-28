@@ -35,8 +35,8 @@ class VoiceSessionStreaming:
     """
     
     # Configuration
-    SILENCE_THRESHOLD = 0.02  # RMS below this = silence
-    SILENCE_DURATION = 2.5    # Seconds of silence to trigger processing
+    SILENCE_THRESHOLD = 0.03  # RMS below this = silence (increased to filter noise)
+    SILENCE_DURATION = 1.5    # Seconds of silence to trigger processing (reduced for faster response)
     MIN_SPEECH_CHUNKS = 1     # Minimum chunks with speech before considering it a turn
     
     def __init__(
