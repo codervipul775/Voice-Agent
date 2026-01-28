@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useCallback } from 'react'
 import { VoiceState } from '@/store/voiceStore'
 
 interface AudioVisualizerProps {
@@ -13,7 +13,7 @@ export default function AudioVisualizer({ audioLevel, isActive, state }: AudioVi
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
   // Color configuration
-  const getColors = () => {
+  const getColors = useCallback(() => {
     switch (state) {
       case 'listening': return ['#4ade80', '#22c55e'] // Green
       case 'speaking': return ['#38bdf8', '#0ea5e9'] // Blue
@@ -21,7 +21,7 @@ export default function AudioVisualizer({ audioLevel, isActive, state }: AudioVi
       case 'error': return ['#ef4444', '#dc2626'] // Red
       default: return ['#94a3b8', '#64748b'] // Gray
     }
-  }
+  }, [state])
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -100,7 +100,7 @@ export default function AudioVisualizer({ audioLevel, isActive, state }: AudioVi
     return () => {
       cancelAnimationFrame(animationId)
     }
-  }, [audioLevel, isActive, state])
+  }, [audioLevel, isActive, state, getColors])
 
   return (
     <div className="w-full h-24 flex items-center justify-center">

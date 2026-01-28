@@ -44,10 +44,10 @@ interface VoiceStore {
   // Captions
   captions: Caption[]
 
-  // Audio metrics (Day 2 feature)
+  // Audio metrics 
   audioMetrics: AudioMetrics | null
 
-  // VAD status (Day 2 feature)
+  // VAD status
   vadStatus: VadStatus
 
   // Audio callback
@@ -131,7 +131,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
 
       ws.onopen = () => {
         clearTimeout(connectionTimeout)
-        console.log('✅ WebSocket connected')
+
         set({
           isConnected: true,
           ws,
@@ -147,7 +147,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data)
-          console.log('📨 WS Message:', data.type)
+
 
           switch (data.type) {
             case 'state_change':
@@ -188,7 +188,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
             }
 
             case 'audio': {
-              console.log('🔊 Received audio chunk, length:', data.data?.length)
+
               const { onAudioReceived } = get()
               if (onAudioReceived && data.data) {
                 onAudioReceived(data.data)
@@ -207,13 +207,13 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
             }
 
             case 'interrupt_ack': {
-              console.log('🛑 Interrupt acknowledged:', data.message)
+
               set({ state: 'listening' })
               break
             }
 
             case 'error':
-              console.error('❌ Server error:', data.message)
+
               toast.error('Server Error', data.message || 'An unexpected error occurred')
               set({ state: 'listening' })
               break
@@ -223,18 +223,18 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
               const interimText = data.data.text || ''
               const interimId = data.data.id
               set({ interimText, interimMessageId: interimId })
-              console.log('💬 Interim:', interimText)
+
               break
             }
           }
-        } catch (error) {
-          console.error('Error parsing WebSocket message:', error)
+        } catch (_error) {
+          console.error('Error parsing WebSocket message:', _error)
         }
       }
 
-      ws.onerror = (error) => {
+      ws.onerror = () => {
         clearTimeout(connectionTimeout)
-        console.error('WebSocket error:', error)
+
         set((state) => ({
           state: 'error',
           connectionState: {
@@ -246,7 +246,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
 
       ws.onclose = (event) => {
         clearTimeout(connectionTimeout)
-        console.log('🔌 WebSocket closed:', event.code, event.reason)
+
 
         const { sessionId, connectionState } = get()
         set({ isConnected: false, ws: null })
@@ -269,7 +269,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
 
         if (newAttempts < connectionState.maxAttempts && sessionId) {
           const delay = getReconnectDelay(newAttempts)
-          console.log(`♻️ Reconnecting in ${Math.round(delay / 1000)}s (attempt ${newAttempts}/${connectionState.maxAttempts})...`)
+
           toast.warning('Connection Lost', `Reconnecting in ${Math.round(delay / 1000)} seconds...`)
 
           setTimeout(() => {
@@ -280,8 +280,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
           set({ state: 'error' })
         }
       }
-    } catch (error) {
-      console.error('Failed to create WebSocket:', error)
+    } catch {
       toast.error('Connection Error', 'Failed to establish connection')
       set({ state: 'error' })
     }
@@ -332,17 +331,17 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
   sendAudio: (audioData: Blob) => {
     const { ws, isConnected } = get()
     if (ws && isConnected) {
-      console.log('📤 Sending audio:', audioData.size, 'bytes')
+
       ws.send(audioData)
     } else {
-      console.error('❌ Cannot send audio - not connected')
+      console.error('Cannot send audio - not connected')
     }
   },
 
   sendInterrupt: () => {
     const { ws, isConnected, state } = get()
     if (ws && isConnected && state === 'speaking') {
-      console.log('🛑 Sending interrupt signal')
+
       ws.send(JSON.stringify({ type: 'interrupt' }))
       set({ state: 'listening' })
     }

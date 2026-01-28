@@ -23,7 +23,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 }
             })
         }
-    }, [isOpen])
+    }, [isOpen, selectedDeviceId])
 
     if (!isOpen) return null
 
@@ -82,9 +82,9 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
                     {/* Info */}
                     <div className="p-3 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-indigo-200 text-xs leading-relaxed">
-                        <strong className="text-indigo-400 block mb-1">About VoiceOS</strong>
-                        Version 1.0.0 • Day 2 Build<br />
-                        Connected to Local Backend
+                        <strong className="text-indigo-400 block mb-1">About VoiceNeural</strong>
+                        Version 1.0.0 <br />
+                        Connected to Servers
                     </div>
 
                 </div>
