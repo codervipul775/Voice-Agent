@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, memo } from 'react'
 import { useVoiceStore } from '@/store/voiceStore'
-import { Bot, User, Download, Sparkles } from 'lucide-react'
+import { Bot, User, Download, Sparkles, Mic } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 
 interface Caption {
@@ -53,8 +53,44 @@ const ChatBubble = memo(({ caption }: { caption: Caption }) => (
 
 ChatBubble.displayName = 'ChatBubble';
 
+// Interim transcript bubble with typing cursor animation
+const InterimBubble = memo(({ text }: { text: string }) => (
+  <motion.div
+    initial={{ opacity: 0, y: 5 }}
+    animate={{ opacity: 1, y: 0 }}
+    exit={{ opacity: 0, y: -5 }}
+    className="mb-6 flex flex-col items-end"
+  >
+    {/* Header */}
+    <div className="flex items-center gap-2 mb-2 px-1 text-[9px] font-black tracking-[0.2em] flex-row-reverse text-yellow-400/80">
+      <div className="flex items-center gap-1.5 opacity-70">
+        <Mic className="w-3 h-3 animate-pulse" />
+        <span>LISTENING</span>
+      </div>
+    </div>
+
+    {/* Bubble with typing effect */}
+    <div className="px-5 py-3.5 rounded-2xl rounded-tr-sm max-w-[90%] text-[13px] leading-relaxed relative overflow-hidden glass-panel border-yellow-500/30 border-dashed">
+      {/* Subtle Gradient Overlay */}
+      <div className="absolute inset-0 opacity-15 pointer-events-none bg-gradient-to-br from-yellow-500/20 to-transparent" />
+
+      {/* Text with typing cursor */}
+      <span className="relative z-10 text-yellow-50/80">
+        {text}
+        <motion.span
+          animate={{ opacity: [1, 0, 1] }}
+          transition={{ duration: 0.8, repeat: Infinity }}
+          className="inline-block w-[2px] h-[14px] bg-yellow-400 ml-1 align-middle"
+        />
+      </span>
+    </div>
+  </motion.div>
+));
+
+InterimBubble.displayName = 'InterimBubble';
+
 export default function LiveCaptions() {
-  const { captions } = useVoiceStore()
+  const { captions, interimText } = useVoiceStore()
   const scrollRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -65,7 +101,7 @@ export default function LiveCaptions() {
         behavior: 'smooth'
       });
     }
-  }, [captions.length, captions[captions.length - 1]?.text])
+  }, [captions.length, captions[captions.length - 1]?.text, interimText])
 
   const exportTranscript = () => {
     const text = captions.map(c =>
@@ -88,7 +124,7 @@ export default function LiveCaptions() {
         className="flex-1 overflow-y-auto space-y-2 pr-4 custom-scrollbar"
       >
         <AnimatePresence mode="popLayout" initial={false}>
-          {captions.length === 0 ? (
+          {captions.length === 0 && !interimText ? (
             <motion.div
               key="empty"
               initial={{ opacity: 0 }}
@@ -99,9 +135,15 @@ export default function LiveCaptions() {
               <p>Awaiting Link</p>
             </motion.div>
           ) : (
-            captions.map((caption) => (
-              <ChatBubble key={caption.id} caption={caption} />
-            ))
+            <>
+              {captions.map((caption) => (
+                <ChatBubble key={caption.id} caption={caption} />
+              ))}
+              {/* Real-time interim transcript */}
+              {interimText && (
+                <InterimBubble key="interim" text={interimText} />
+              )}
+            </>
           )}
         </AnimatePresence>
         <div className="h-8" />
@@ -122,4 +164,3 @@ export default function LiveCaptions() {
     </div>
   )
 }
-

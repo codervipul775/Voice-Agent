@@ -17,6 +17,7 @@ from app.services.audio_metrics import AudioMetricsService
 from app.services.vad import VoiceActivityDetector
 from app.services.search import search_service
 from app.services.metrics import metrics_collector
+from app.services.stt_streaming import DeepgramStreamingSTT, create_streaming_stt
 from app.core.cache import get_semantic_cache
 from app.core.memory import ConversationMemory
 from app.core.provider_manager import ProviderManager, get_stt_manager, get_llm_manager, get_tts_manager
@@ -34,10 +35,11 @@ class VoiceSessionStreaming:
     - Processes when silence is detected after speech
     """
     
-    # Configuration
+    # Configuration - OPTIMIZED FOR LOW LATENCY
     SILENCE_THRESHOLD = 0.03  # RMS below this = silence (increased to filter noise)
-    SILENCE_DURATION = 1.5    # Seconds of silence to trigger processing (reduced for faster response)
+    SILENCE_DURATION = 0.8    # Seconds of silence to trigger processing (optimized for speed)
     MIN_SPEECH_CHUNKS = 1     # Minimum chunks with speech before considering it a turn
+    FALLBACK_TIMEOUT = 1.0    # Timeout for fallback mode (when ffprobe unavailable)
     
     def __init__(
         self,
@@ -90,6 +92,35 @@ class VoiceSessionStreaming:
         self.silence_start_time: float = 0
         self._silence_check_task: Optional[asyncio.Task] = None  # For fallback VAD
         
+        # Real-time streaming STT for live captions
+        self.streaming_stt: Optional[DeepgramStreamingSTT] = None
+        self._init_streaming_stt()
+        
+    def _init_streaming_stt(self):
+        """Initialize the real-time streaming STT service."""
+        async def on_interim(text: str):
+            if text:
+                await self.send_interim_transcript(text)
+                
+        async def on_final(text: str):
+            if text:
+                # We still use the existing turn-based processing for the full turn,
+                # but we can log final segments here for better visual feedback.
+                logger.info(f"🎤 Streaming Final: {text}")
+
+        self.streaming_stt = create_streaming_stt(
+            on_interim=on_interim,
+            on_final=on_final
+        )
+        
+    async def cleanup(self):
+        """Cleanup session resources."""
+        if self.streaming_stt:
+            await self.streaming_stt.finalize()
+            await self.streaming_stt.disconnect()
+            self.streaming_stt = None
+        logger.info(f"🧹 Session {self.session_id[:8]} cleaned up")
+        
     async def send_state_update(self, state: str):
         """Send state update to frontend"""
         self.state = state
@@ -119,6 +150,28 @@ class VoiceSessionStreaming:
             })
         except Exception as e:
             logger.error(f"Error sending transcript: {e}")
+    
+    async def send_interim_transcript(self, text: str, message_id: str = None):
+        """
+        Send interim (partial) transcript for real-time word-by-word display.
+        This shows text as the user speaks, like live video captions.
+        """
+        try:
+            if not message_id:
+                message_id = f"user_interim_{int(time.time()*1000)}"
+                
+            await self.websocket.send_json({
+                "type": "interim_transcript",
+                "data": {
+                    "id": message_id,
+                    "speaker": "user",
+                    "text": text,
+                    "timestamp": time.time(),
+                    "is_final": False
+                }
+            })
+        except Exception as e:
+            logger.error(f"Error sending interim transcript: {e}")
     
     async def send_audio_metrics(self, metrics: dict):
         """Send audio quality metrics to frontend"""
@@ -454,6 +507,17 @@ class VoiceSessionStreaming:
                 using_fallback = True
                 is_speech = True
 
+            # Forward audio to streaming STT for real-time live captions
+            if self.streaming_stt:
+                # Ensure connection is active
+                if not self.streaming_stt.is_connected:
+                    connected = await self.streaming_stt.connect()
+                    if not connected:
+                        logger.warning("Failed to connect to streaming STT for live captions")
+                
+                if self.streaming_stt.is_connected:
+                    await self.streaming_stt.send_audio(audio_data)
+
             now = time.time()
             
             # PUSH-TO-TALK DETECTION: Large chunk = process immediately
@@ -477,8 +541,8 @@ class VoiceSessionStreaming:
                 await self.send_vad_status(is_speech=True)
                 
                 # Schedule silence check - will be cancelled if another chunk arrives
-                # If no more chunks arrive within 2 seconds, audio will be processed
-                self._schedule_silence_check(timeout=2.0)
+                # If no more chunks arrive within FALLBACK_TIMEOUT, audio will be processed
+                self._schedule_silence_check(timeout=self.FALLBACK_TIMEOUT)
                 logger.info(f"📦 Fallback mode: {len(self.audio_chunks)} chunks (waiting for silence)")
                 return
             

@@ -53,6 +53,10 @@ interface VoiceStore {
   // Audio callback
   onAudioReceived: ((audioData: string) => void) | null
 
+  // Real-time interim transcript (word-by-word)
+  interimText: string
+  interimMessageId: string | null
+
   // Actions
   connect: (sessionId: string) => Promise<void>
   disconnect: () => void
@@ -89,10 +93,12 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
     maxAttempts: 5,
     lastError: null
   },
+  interimText: '',
+  interimMessageId: null,
 
   connect: async (sessionId: string) => {
     const { connectionState, ws: existingWs } = get()
-    
+
     // Close existing connection if any
     if (existingWs) {
       existingWs.close()
@@ -105,13 +111,13 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       return
     }
 
-    set({ 
+    set({
       sessionId,
       state: connectionState.attempts > 0 ? 'reconnecting' : 'idle'
     })
 
     const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000'
-    
+
     try {
       const ws = new WebSocket(`${wsUrl}/voice/${sessionId}`)
 
@@ -126,13 +132,13 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       ws.onopen = () => {
         clearTimeout(connectionTimeout)
         console.log('✅ WebSocket connected')
-        set({ 
-          isConnected: true, 
-          ws, 
+        set({
+          isConnected: true,
+          ws,
           state: 'listening',
           connectionState: { attempts: 0, maxAttempts: 5, lastError: null }
         })
-        
+
         if (connectionState.attempts > 0) {
           toast.success('Reconnected', 'Connection restored successfully')
         }
@@ -160,13 +166,18 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
               const captions = get().captions
               const lastCaption = captions[captions.length - 1]
 
+              // Clear interim text when final user transcript arrives
+              const clearInterim = data.data.is_final && data.data.speaker === 'user'
+
               if (lastCaption && lastCaption.speaker === caption.speaker && !lastCaption.isFinal) {
                 set((state) => ({
-                  captions: [...state.captions.slice(0, -1), caption]
+                  captions: [...state.captions.slice(0, -1), caption],
+                  ...(clearInterim ? { interimText: '', interimMessageId: null } : {})
                 }))
               } else if (data.data.is_final) {
                 set((state) => ({
-                  captions: [...state.captions, caption]
+                  captions: [...state.captions, caption],
+                  ...(clearInterim ? { interimText: '', interimMessageId: null } : {})
                 }))
               } else {
                 set((state) => ({
@@ -206,6 +217,15 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
               toast.error('Server Error', data.message || 'An unexpected error occurred')
               set({ state: 'listening' })
               break
+
+            case 'interim_transcript': {
+              // Real-time word-by-word transcript display
+              const interimText = data.data.text || ''
+              const interimId = data.data.id
+              set({ interimText, interimMessageId: interimId })
+              console.log('💬 Interim:', interimText)
+              break
+            }
           }
         } catch (error) {
           console.error('Error parsing WebSocket message:', error)
@@ -227,7 +247,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       ws.onclose = (event) => {
         clearTimeout(connectionTimeout)
         console.log('🔌 WebSocket closed:', event.code, event.reason)
-        
+
         const { sessionId, connectionState } = get()
         set({ isConnected: false, ws: null })
 
@@ -249,9 +269,9 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
 
         if (newAttempts < connectionState.maxAttempts && sessionId) {
           const delay = getReconnectDelay(newAttempts)
-          console.log(`♻️ Reconnecting in ${Math.round(delay/1000)}s (attempt ${newAttempts}/${connectionState.maxAttempts})...`)
-          toast.warning('Connection Lost', `Reconnecting in ${Math.round(delay/1000)} seconds...`)
-          
+          console.log(`♻️ Reconnecting in ${Math.round(delay / 1000)}s (attempt ${newAttempts}/${connectionState.maxAttempts})...`)
+          toast.warning('Connection Lost', `Reconnecting in ${Math.round(delay / 1000)} seconds...`)
+
           setTimeout(() => {
             get().connect(sessionId)
           }, delay)
@@ -272,10 +292,10 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
     if (ws) {
       ws.close(1000, 'User disconnected') // Normal closure
     }
-    set({ 
-      isConnected: false, 
-      ws: null, 
-      state: 'idle', 
+    set({
+      isConnected: false,
+      ws: null,
+      state: 'idle',
       audioMetrics: null,
       connectionState: { attempts: 0, maxAttempts: 5, lastError: null }
     })
