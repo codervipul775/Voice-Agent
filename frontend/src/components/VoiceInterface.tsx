@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Mic, MicOff, Settings, Zap, Activity, LayoutDashboard } from 'lucide-react'
+import { Mic, MicOff, Settings, Activity, LayoutDashboard, Radio, Cpu } from 'lucide-react'
 import { useVoiceStore } from '@/store/voiceStore'
 import { useAudioRecorder } from '@/hooks/useAudioRecorder'
 import { useAudioPlayer } from '@/hooks/useAudioPlayer'
@@ -11,19 +11,17 @@ import LiveCaptions from './LiveCaptions'
 import AudioStats from './AudioStats'
 import SettingsModal from './SettingsModal'
 import MetricsDashboard from './MetricsDashboard'
-import TranscriptExport from './TranscriptExport'
-import ConnectionStatus from './ConnectionStatus'
+import { motion, AnimatePresence } from 'framer-motion'
 
 export default function VoiceInterface() {
-  const { state, isConnected, connect, vadStatus, setAudioCallback, sendInterrupt } = useVoiceStore()
+  const { state, isConnected, connect, setAudioCallback, sendInterrupt } = useVoiceStore()
   const { isRecording, startRecording, stopRecording, audioLevel, vadMode, toggleVadMode, cleanup } = useAudioRecorder()
   const { queueAudio, stopAudio } = useAudioPlayer()
 
-  // Enable hands-free barge-in detection (monitors mic during AI speech)
   useInterruptDetector({ stopAudio })
 
   const [sessionId, setSessionId] = useState<string>('')
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true)  // Default open
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true)
   const [isMetricsOpen, setIsMetricsOpen] = useState(false)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
 
@@ -65,168 +63,192 @@ export default function VoiceInterface() {
     }
   }
 
-  const micButtonVariant = isRecording
-    ? vadStatus?.is_speech
-      ? 'bg-emerald-500 shadow-[0_0_30px_rgba(16,185,129,0.3)]'
-      : 'bg-rose-500 shadow-[0_0_30px_rgba(244,63,94,0.3)]'
-    : 'bg-white/10 hover:bg-white/20'
-
   return (
-    <div className="h-screen w-full flex bg-[#05050a] overflow-hidden relative font-sans text-slate-200">
+    <div className="h-screen w-full flex bg-black overflow-hidden relative font-sans text-slate-200">
+
+      {/* Visual Identity Layer */}
+      <div className="mesh-gradient opacity-40" />
+      <div className="noise" />
 
       {/* Background Ambience */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-cyan-500/10 blur-[120px] rounded-full" />
-        <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-purple-500/10 blur-[120px] rounded-full" />
+        <motion.div
+          animate={{
+            x: [0, 100, 0],
+            y: [0, 50, 0],
+            opacity: [0.1, 0.2, 0.1]
+          }}
+          transition={{ duration: 10, repeat: Infinity }}
+          className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-cyan-500/10 blur-[120px] rounded-full"
+        />
+        <motion.div
+          animate={{
+            x: [0, -100, 0],
+            y: [0, -50, 0],
+            opacity: [0.1, 0.2, 0.1]
+          }}
+          transition={{ duration: 15, repeat: Infinity }}
+          className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-purple-500/10 blur-[120px] rounded-full"
+        />
       </div>
 
       {/* MAIN CONTENT AREA */}
-      <div className="flex-1 flex flex-col relative z-10 transition-all duration-500 ease-in-out">
+      <motion.div
+        layout
+        className="flex-1 flex flex-col relative z-10"
+      >
 
         {/* Top Navbar */}
-        <header className="p-6 flex justify-between items-center bg-gradient-to-b from-black/20 to-transparent">
-          <div className="flex items-center gap-4">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-400 to-blue-600 flex items-center justify-center neon-glow">
-              <Zap className="w-6 h-6 text-white" />
+        <header className="p-8 flex justify-between items-center">
+          <div className="flex items-center gap-6">
+            <div className="relative">
+              <div className="absolute inset-0 bg-cyan-500/20 blur-xl rounded-full animate-pulse" />
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-cyan-400 to-blue-600 flex items-center justify-center relative z-10 shadow-2xl">
+                <Cpu className="w-6 h-6 text-white" />
+              </div>
             </div>
             <div>
-              <h1 className="font-heading font-bold text-xl tracking-tight text-white">
-                Voice<span className="text-cyan-400">OS</span>
+              <h1 className="font-heading font-black text-2xl tracking-tighter text-white">
+                VOICE<span className="text-cyan-400">NEURAL</span>
               </h1>
-              <div className="flex items-center gap-2 text-[10px] uppercase font-bold tracking-[0.2em] text-slate-500">
-                <span className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-emerald-500 animate-pulse-ring' : 'bg-slate-700'}`} />
-                {isConnected ? 'Core Active' : 'Offline'}
+              <div className="flex items-center gap-2 text-[10px] font-black tracking-[0.3em] text-white/20 uppercase">
+                <span className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-cyan-400' : 'bg-white/10'}`} />
+                {isConnected ? 'Neural Link Active' : 'Link Offline'}
               </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            {/* Connection Status */}
-            <ConnectionStatus compact />
-            
-            {/* Transcript Export */}
-            <TranscriptExport />
-            
-            <button
-              onClick={() => setIsMetricsOpen(!isMetricsOpen)}
-              className={`p-2.5 rounded-xl transition-all ${isMetricsOpen ? 'bg-indigo-500/20 text-indigo-400 ring-1 ring-indigo-500/50' : 'text-slate-400 hover:bg-white/5'}`}
-              title="Telemetry Dashboard"
-            >
-              <Activity className="w-5 h-5" />
-            </button>
-            <button
-              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-              className={`p-2.5 rounded-xl transition-all ${isSidebarOpen ? 'bg-white/10 text-white' : 'text-slate-400 hover:bg-white/5'}`}
-              title="Toggle Transcript"
-            >
-              <LayoutDashboard className="w-5 h-5" />
-            </button>
+          <div className="flex items-center gap-3">
+            <div className="flex bg-white/5 p-1 rounded-2xl glass-panel">
+              <button
+                onClick={() => setIsMetricsOpen(!isMetricsOpen)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-black tracking-widest transition-all ${isMetricsOpen ? 'bg-cyan-500 text-black shadow-lg shadow-cyan-500/20' : 'text-white/40 hover:text-white'}`}
+              >
+                <Activity className="w-3.5 h-3.5" />
+                TELEMETRY
+              </button>
+              <button
+                onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-black tracking-widest transition-all ${isSidebarOpen ? 'bg-white/10 text-white' : 'text-white/40 hover:text-white'}`}
+              >
+                <LayoutDashboard className="w-3.5 h-3.5" />
+                INTERFACE
+              </button>
+            </div>
           </div>
         </header>
 
         {/* Central Stage */}
         <main className="flex-1 flex flex-col items-center justify-center p-4">
-          <div className="relative group">
-            {(state === 'listening' || state === 'speaking') && (
-              <>
-                <div className="absolute inset-[-40px] border border-cyan-500/20 rounded-full animate-[ping_3s_linear_infinite]" />
-                <div className="absolute inset-[-80px] border border-purple-500/10 rounded-full animate-[ping_4s_linear_infinite]" />
-              </>
-            )}
-            <AgentAvatar state={state} audioLevel={audioLevel} />
-          </div>
+          <AgentAvatar state={state} audioLevel={audioLevel} />
 
-          <div className="mt-12 text-center">
-            <div className={`
-              px-6 py-2 rounded-2xl border border-white/5 backdrop-blur-xl shadow-2xl transition-all duration-300
-              ${state === 'listening' ? 'text-emerald-400 bg-emerald-500/5 border-emerald-500/10' :
-                state === 'thinking' ? 'text-indigo-400 bg-indigo-500/5 border-indigo-500/10' :
-                state === 'speaking' ? 'text-cyan-400 bg-cyan-500/5 border-cyan-500/10' :
-                state === 'reconnecting' ? 'text-amber-400 bg-amber-500/5 border-amber-500/10' :
-                state === 'error' ? 'text-rose-400 bg-rose-500/5 border-rose-500/10' : 'text-slate-500 bg-white/5'}
-            `}>
-              <span className="text-xs font-bold uppercase tracking-[0.3em]">
-                {state === 'idle' ? 'System Ready' :
-                  state === 'listening' ? (vadStatus?.is_speech ? 'Receiving Speech' : 'Await Signal') :
-                  state === 'thinking' ? 'Processing...' :
-                  state === 'reconnecting' ? 'Reconnecting...' :
-                  state === 'error' ? 'Connection Error' : 'Emitting Signal'}
+          <motion.div
+            initial={false}
+            animate={{ opacity: 1, y: 0 }}
+            className="mt-16 flex flex-col items-center gap-4"
+          >
+            <div className="flex items-center gap-3 px-6 py-2.5 rounded-full glass-panel border-white/5">
+              <Radio className={`w-3.5 h-3.5 ${state !== 'idle' ? 'text-cyan-400 animate-pulse' : 'text-white/20'}`} />
+              <span className="text-[10px] font-black tracking-[0.4em] text-white/60 uppercase">
+                {state === 'idle' ? 'Awaiting Interaction' :
+                  state === 'listening' ? 'Analyzing Signal' :
+                    state === 'thinking' ? 'Synthesizing' :
+                      state === 'speaking' ? 'Emitting Response' : state}
               </span>
             </div>
-          </div>
+          </motion.div>
         </main>
 
         {/* Futuristic Control Dock */}
-        <div className="p-10 flex justify-center">
-          <div className="glass-hud rounded-3xl p-2 flex items-center gap-2 shadow-2xl border border-white/10">
-            <div className="px-5 py-2 flex flex-col border-r border-white/5">
-              <span className="text-[9px] uppercase font-bold tracking-widest text-slate-500 mb-0.5">Mode</span>
+        <div className="p-12 flex justify-center">
+          <div className="relative group">
+            <div className="absolute inset-0 bg-cyan-500/5 blur-3xl rounded-full" />
+            <div className="glass-panel rounded-[2.5rem] p-3 flex items-center gap-4 relative z-10 border-white/5 pr-6">
+              <div className="flex flex-col items-start px-6 border-r border-white/5">
+                <span className="text-[8px] font-black tracking-[0.3em] text-white/20 uppercase mb-1">Link Protocol</span>
+                <button
+                  onClick={toggleVadMode}
+                  disabled={isRecording}
+                  className={`text-xs font-black tracking-widest transition-all ${vadMode ? 'text-cyan-400' : 'text-white/60'} disabled:opacity-50`}
+                >
+                  {vadMode ? 'VAD ENABLED' : 'PTT PROTOCOL'}
+                </button>
+              </div>
+
               <button
-                onClick={toggleVadMode}
-                disabled={isRecording}
-                className={`text-[11px] font-bold tracking-wide transition-all ${vadMode ? 'text-cyan-400' : 'text-white'} disabled:opacity-50`}
+                onClick={handleToggleConnection}
+                disabled={state === 'thinking'}
+                className={`
+                            relative w-20 h-20 rounded-[2rem] flex items-center justify-center transition-all duration-500 group
+                            ${isRecording ? 'bg-cyan-500 shadow-2xl shadow-cyan-500/40' : 'bg-white/5 hover:bg-white/10'}
+                            disabled:opacity-30
+                        `}
               >
-                {vadMode ? 'VAD AUTO' : 'PUSH TALK'}
+                {isRecording ? (
+                  <div className="relative">
+                    <Mic className="w-8 h-8 text-black relative z-10" />
+                    <motion.div
+                      animate={{ scale: [1, 1.5, 1], opacity: [0.5, 0, 0.5] }}
+                      transition={{ duration: 2, repeat: Infinity }}
+                      className="absolute inset-0 bg-white rounded-full z-0"
+                    />
+                  </div>
+                ) : (
+                  <MicOff className="w-8 h-8 text-white/20 group-hover:text-white/40 transition-colors" />
+                )}
               </button>
-            </div>
 
-            <button
-              onClick={handleToggleConnection}
-              disabled={state === 'thinking'}
-              className={`
-                w-14 h-14 rounded-2xl flex items-center justify-center transition-all duration-500 border border-white/5
-                ${state === 'speaking' ? 'bg-orange-500 text-white neon-glow animate-pulse' : micButtonVariant}
-                disabled:opacity-30
-              `}
-            >
-              {isRecording ? <Mic className="w-6 h-6 animate-pulse" /> : <MicOff className="w-6 h-6 opacity-40" />}
-            </button>
-
-            <div className="flex gap-1 pl-1">
-              <button
-                onClick={() => setIsSettingsOpen(true)}
-                className="w-11 h-11 rounded-xl hover:bg-white/5 flex items-center justify-center text-slate-500 hover:text-white transition-all"
-              >
-                <Settings className="w-5 h-5" />
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* SIDEBARS CONTAINER - Metrics on far right, Transcript slides */}
-      <div className="h-full flex transition-all duration-500 ease-in-out">
-
-        {/* TRANSCRIPT SIDEBAR - Always on right, slides left when metrics open */}
-        <aside className={`
-          h-full bg-[#080810]/80 backdrop-blur-2xl border-l border-white/5
-          flex flex-col transition-all duration-500 ease-in-out
-          ${isSidebarOpen
-            ? 'w-[350px] lg:w-[380px] opacity-100'
-            : 'w-0 opacity-0 overflow-hidden border-none'}
-        `}>
-          <div className="p-5 border-b border-white/5 bg-white/[0.02] min-w-[350px]">
-            <div className="text-[10px] font-bold uppercase tracking-[0.3em] text-slate-500 mb-4 px-1">Signal Telemetry</div>
-            {isConnected ? <AudioStats /> : <div className="h-24 flex items-center justify-center text-slate-700 text-xs uppercase tracking-widest">Awaiting Link...</div>}
-          </div>
-
-          <div className="flex-1 flex flex-col min-h-0 relative min-w-[350px]">
-            <div className="p-5 pb-3 text-[10px] font-bold uppercase tracking-[0.3em] text-slate-500 sticky top-0 bg-[#080810]/95 z-10">
-              Live Link Transcript
-            </div>
-            <div className="flex-1 overflow-hidden relative">
-              <div className="absolute inset-0 p-5 pt-0 custom-scrollbar overflow-y-auto">
-                <LiveCaptions />
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setIsSettingsOpen(true)}
+                  className="w-12 h-12 rounded-2xl hover:bg-white/5 flex items-center justify-center text-white/20 hover:text-white transition-all"
+                >
+                  <Settings className="w-5 h-5" />
+                </button>
               </div>
             </div>
           </div>
-        </aside>
+        </div>
+      </motion.div>
 
-        {/* METRICS HUD Panel - Slides in from right */}
-        <MetricsDashboard isOpen={isMetricsOpen} onClose={() => setIsMetricsOpen(false)} />
+      {/* SIDEBARS CONTAINER */}
+      <div className="flex shrink-0">
+        <AnimatePresence mode="popLayout">
+          {isSidebarOpen && (
+            <motion.aside
+              key="transcript"
+              layout
+              initial={{ x: 400, opacity: 0, scale: 0.95 }}
+              animate={{ x: 0, opacity: 1, scale: 1 }}
+              exit={{ x: 400, opacity: 0, scale: 0.95 }}
+              transition={{ type: "spring", damping: 30, stiffness: 300 }}
+              className="w-[400px] h-[calc(100vh-4rem)] m-8 ml-0 glass-panel rounded-[2.5rem] flex flex-col overflow-hidden relative z-20"
+            >
+              <div className="p-8 border-b border-white/5 flex flex-col gap-6">
+                <div>
+                  <div className="text-[10px] font-black uppercase tracking-[0.4em] text-white/20 mb-4">Signal Integrity</div>
+                  {isConnected ? <AudioStats /> : <div className="h-24 flex items-center justify-center text-white/5 text-[10px] font-black uppercase tracking-[0.5em]">No Data Link</div>}
+                </div>
+              </div>
+
+              <div className="flex-1 flex flex-col min-h-0">
+                <div className="px-8 pt-8 pb-4 text-[10px] font-black uppercase tracking-[0.4em] text-white/20">
+                  Signal Log
+                </div>
+                <div className="flex-1 overflow-hidden p-8 pt-0">
+                  <LiveCaptions />
+                </div>
+              </div>
+
+              {/* Visual Accent */}
+              <div className="absolute top-0 right-0 w-24 h-24 bg-cyan-500/5 blur-3xl pointer-events-none" />
+            </motion.aside>
+          )}
+          <MetricsDashboard isOpen={isMetricsOpen} onClose={() => setIsMetricsOpen(false)} />
+        </AnimatePresence>
       </div>
-
       <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
     </div>
   )
 }
+

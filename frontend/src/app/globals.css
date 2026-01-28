@@ -2,21 +2,28 @@
 @tailwind components;
 @tailwind utilities;
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Outfit:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Outfit:wght@300;400;500;600;700;800&display=swap');
 
 :root {
-  --foreground-rgb: 255, 255, 255;
-  --background-start-rgb: 15, 23, 42;
-  --background-end-rgb: 2, 6, 23;
-  --accent-cyan: #22d3ee;
-  --accent-purple: #a855f7;
+  --background-hex: #02040a;
+  --panel-bg: rgba(13, 17, 23, 0.6);
+  --accent-primary: #00f2ff;
+  --accent-secondary: #7000ff;
+  --accent-success: #00ff88;
+  --accent-error: #ff2d55;
+  --glass-border: rgba(255, 255, 255, 0.08);
 }
 
 body {
-  color: rgb(var(--foreground-rgb));
-  background: transparent;
-  font-family: 'Inter', sans-serif;
+  color: #e6edf3;
+  background-color: var(--background-hex);
+  background-image:
+    radial-gradient(at 0% 0%, rgba(0, 242, 255, 0.05) 0px, transparent 50%),
+    radial-gradient(at 100% 100%, rgba(112, 0, 255, 0.05) 0px, transparent 50%);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
   overflow: hidden;
+  height: 100vh;
+  width: 100vw;
 }
 
 h1,
@@ -24,48 +31,89 @@ h2,
 h3,
 .font-heading {
   font-family: 'Outfit', sans-serif;
+  letter-spacing: -0.02em;
 }
 
-.font-mono {
-  font-family: 'JetBrains Mono', monospace;
-}
-
-/* Glassmorphism Utilities */
+/* Sophisticated Glassmorphism */
 .glass-panel {
+  background: rgba(15, 20, 30, 0.4);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.8);
+}
+
+.glass-pill {
   background: rgba(255, 255, 255, 0.03);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
-}
-
-.glass-hud {
-  background: rgba(10, 10, 20, 0.85);
-  backdrop-filter: blur(25px);
-  -webkit-backdrop-filter: blur(25px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
-}
-
-.glass-card {
-  background: rgba(15, 23, 42, 0.6);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.neon-glow {
-  box-shadow: 0 0 20px rgba(34, 211, 238, 0.3);
+.glass-pill:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.1);
+  transform: translateY(-1px);
 }
 
-.neon-glow-purple {
-  box-shadow: 0 0 20px rgba(168, 85, 247, 0.3);
+.glass-input {
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.3);
 }
 
-/* Scrollbar Styles */
+/* Sci-fi UI Elements */
+.neon-border {
+  position: relative;
+}
+
+.neon-border::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  background: linear-gradient(45deg, var(--accent-primary), var(--accent-secondary), var(--accent-primary));
+  background-size: 200% 200%;
+  animation: border-rotate 4s linear infinite;
+  z-index: -1;
+  border-radius: inherit;
+  opacity: 0.3;
+}
+
+@keyframes border-rotate {
+  0% {
+    background-position: 0% 50%;
+  }
+
+  50% {
+    background-position: 100% 50%;
+  }
+
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+/* Smooth Animations */
+@keyframes slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-slide-up {
+  animation: slide-up 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Custom Scrollbar */
 ::-webkit-scrollbar {
-  width: 6px;
+  width: 4px;
 }
 
 ::-webkit-scrollbar-track {
@@ -81,52 +129,85 @@ h3,
   background: rgba(255, 255, 255, 0.2);
 }
 
-/* Animations */
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(5px);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+/* Text Selection */
+::selection {
+  background: var(--accent-primary);
+  color: #000;
 }
 
-@keyframes float {
+/* Dynamic Mesh Background */
+.mesh-gradient {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  background-color: var(--background-hex);
+  background-image:
+    radial-gradient(circle at 50% -20%, #1e293b, transparent),
+    radial-gradient(circle at 0% 100%, rgba(0, 242, 255, 0.08), transparent 40%),
+    radial-gradient(circle at 100% 0%, rgba(112, 0, 255, 0.08), transparent 40%);
+  z-index: -1;
+}
 
-  0%,
-  100% {
-    transform: translateY(0px);
+/* Noise overlay for texture */
+.noise {
+  position: fixed;
+  top: -50%;
+  left: -50%;
+  right: -50%;
+  bottom: -50%;
+  width: 200%;
+  height: 200vh;
+  background: transparent url('http://assets.iceable.com/img/noise-transparent.png') repeat 0 0;
+  background-repeat: repeat;
+  animation: bg-animation .2s infinite;
+  opacity: .05;
+  visibility: visible;
+  z-index: 999;
+  pointer-events: none;
+}
+
+@keyframes bg-animation {
+  0% {
+    transform: translate(0, 0)
+  }
+
+  10% {
+    transform: translate(-5%, -5%)
+  }
+
+  20% {
+    transform: translate(-10%, 5%)
+  }
+
+  30% {
+    transform: translate(5%, -10%)
+  }
+
+  40% {
+    transform: translate(-5%, 15%)
   }
 
   50% {
-    transform: translateY(-10px);
+    transform: translate(-10%, 5%)
   }
-}
 
-.animate-float {
-  animation: float 6s ease-in-out infinite;
-}
+  60% {
+    transform: translate(15%, 0)
+  }
 
-@keyframes pulse-ring {
-  0% {
-    transform: scale(0.8);
-    opacity: 0.5;
+  70% {
+    transform: translate(0, 10%)
+  }
+
+  80% {
+    transform: translate(-15%, 0)
+  }
+
+  90% {
+    transform: translate(10%, 5%)
   }
 
   100% {
-    transform: scale(1.3);
-    opacity: 0;
+    transform: translate(5%, 0)
   }
-}
-
-.animate-pulse-ring {
-  animation: pulse-ring 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-}
-
-/* Layout Utilities */
-.sidebar-push {
-  transition: padding-right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
