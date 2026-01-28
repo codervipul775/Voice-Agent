@@ -47,19 +47,13 @@ jobs:
       - name: 'Stop Azure Web App before deployment'
         run: |
           az webapp stop --name Voice --resource-group Voice_group || echo "Stop failed, continuing..."
-          sleep 60
-          
-      - name: 'Clean deployment history'
-        run: |
-          az webapp deployment slot delete --name Voice --resource-group Voice_group --slot staging 2>/dev/null || true
-          
+          sleep 30
       - name: 'Deploy to Azure Web App'
         uses: azure/webapps-deploy@v3
         with:
           app-name: 'Voice'
           slot-name: 'Production'
           package: .
-          clean: true
 
       - name: 'Start Azure Web App after deployment'
         run: |

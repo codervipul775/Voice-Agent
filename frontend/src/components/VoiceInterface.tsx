@@ -28,7 +28,7 @@ export default function VoiceInterface() {
   useEffect(() => {
     setSessionId(crypto.randomUUID())
     return () => cleanup()
-  }, [cleanup])
+  }, [])
 
   useEffect(() => {
     setAudioCallback((audioDataBase64: string) => {
@@ -43,7 +43,7 @@ export default function VoiceInterface() {
         console.error('Error decoding audio:', error)
       }
     })
-  }, [queueAudio, setAudioCallback])
+  }, [])
 
   const handleToggleConnection = async () => {
     if (state === 'speaking') {
