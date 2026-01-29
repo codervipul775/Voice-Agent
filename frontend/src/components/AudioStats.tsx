@@ -4,72 +4,86 @@ import { useVoiceStore } from '@/store/voiceStore'
 import { motion } from 'framer-motion'
 
 export default function AudioStats() {
-    const { audioMetrics, vadStatus, isConnected } = useVoiceStore()
+    const { audioMetrics, vadStatus, isConnected, theme } = useVoiceStore()
 
     if (!isConnected) return null
 
     if (!audioMetrics) {
         return (
-            <div className="w-full flex items-center justify-center p-8 glass-pill opacity-20">
+            <div className="w-full flex items-center justify-center p-8 glass-pill opacity-20 text-[var(--text-secondary)]">
                 <span className="text-[10px] font-black tracking-[0.3em]">SYNCHRONIZING...</span>
             </div>
         )
     }
 
-    const getQualityColor = (score: number) => {
-        if (score >= 80) return 'text-cyan-400'
-        if (score >= 60) return 'text-amber-400'
-        return 'text-rose-400'
+    const score = audioMetrics.quality_score;
+    const radius = 36;
+    const circumference = 2 * Math.PI * radius;
+    const offset = circumference - (score / 100) * circumference;
+
+    const getQualityColor = (s: number) => {
+        if (s >= 80) return theme === 'light' ? 'text-cyan-600' : 'text-cyan-400'
+        if (s >= 60) return theme === 'light' ? 'text-amber-600' : 'text-amber-400'
+        return theme === 'light' ? 'text-rose-600' : 'text-rose-400'
+    }
+
+    const getQualityStroke = (s: number) => {
+        if (s >= 80) return theme === 'light' ? '#0ea5e9' : '#22d3ee'
+        if (s >= 60) return theme === 'light' ? '#d97706' : '#fbbf24'
+        return theme === 'light' ? '#e11d48' : '#fb7185'
     }
 
     return (
-        <div className="w-full space-y-6">
-            {/* VAD Status Pill */}
-            <div className="flex items-center justify-between">
-                <span className="text-[9px] text-white/20 font-black uppercase tracking-[0.2em]">Neural State</span>
-                <motion.div
-                    animate={{ scale: vadStatus?.is_speech ? [1, 1.05, 1] : 1 }}
-                    className={`
-                px-3 py-1 rounded-full border glass-pill flex items-center gap-2
-                ${vadStatus?.is_speech ? 'border-cyan-500/30' : 'border-white/5'}
-            `}
-                >
-                    <div className={`w-1 h-1 rounded-full ${vadStatus?.is_speech ? 'bg-cyan-400 shadow-[0_0_10px_rgba(34,211,238,0.5)] animate-pulse' : 'bg-white/10'}`} />
-                    <span className={`text-[10px] font-black tracking-widest ${vadStatus?.is_speech ? 'text-cyan-400' : 'text-white/20'}`}>
-                        {vadStatus?.is_speech ? 'SPEECH_ACTIVE' : 'IDLE_SILENCE'}
-                    </span>
-                </motion.div>
-            </div>
-
-            {/* Main Grid */}
-            <div className="grid grid-cols-2 gap-4">
-                <div className="glass-panel p-5 rounded-3xl relative overflow-hidden group">
-                    <div className="absolute top-0 right-0 w-16 h-16 bg-gradient-to-br from-cyan-500/10 to-transparent pointer-events-none" />
-                    <span className="text-[8px] text-white/20 font-black uppercase tracking-widest mb-2 block">Integrity</span>
-                    <div className="flex items-baseline gap-1">
-                        <span className={`text-3xl font-heading font-black tracking-tighter ${getQualityColor(audioMetrics.quality_score)}`}>
-                            {audioMetrics.quality_score}
-                        </span>
-                        <span className="text-[10px] text-white/20 font-mono">%</span>
-                    </div>
-                    <div className="mt-2 h-1 bg-white/5 rounded-full overflow-hidden">
-                        <motion.div
-                            initial={{ width: 0 }}
-                            animate={{ width: `${audioMetrics.quality_score}%` }}
-                            className="h-full bg-cyan-400"
+        <div className="w-full space-y-8">
+            {/* Main Stats Row */}
+            <div className="flex items-center gap-6">
+                {/* Circular Integrity Indicator */}
+                <div className="relative flex items-center justify-center w-24 h-24">
+                    <svg className="w-full h-full -rotate-90">
+                        <circle
+                            cx="48"
+                            cy="48"
+                            r={radius}
+                            fill="transparent"
+                            stroke="currentColor"
+                            strokeWidth="8"
+                            className={theme === 'light' ? 'text-slate-100' : 'text-white/5'}
                         />
+                        <motion.circle
+                            initial={{ strokeDashoffset: circumference }}
+                            animate={{ strokeDashoffset: offset }}
+                            transition={{ duration: 1, ease: "easeOut" }}
+                            cx="48"
+                            cy="48"
+                            r={radius}
+                            fill="transparent"
+                            stroke={getQualityStroke(score)}
+                            strokeWidth="8"
+                            strokeDasharray={circumference}
+                            strokeLinecap="round"
+                        />
+                    </svg>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center">
+                        <span className={`text-xl font-black font-heading tracking-tighter ${getQualityColor(score)}`}>
+                            {score}%
+                        </span>
+                        <span className={`text-[7px] font-black uppercase tracking-widest opacity-40 ${theme === 'light' ? 'text-slate-500' : 'text-white'}`}>Integrity</span>
                     </div>
                 </div>
 
-                <div className="space-y-3">
+                {/* Vertical Divider */}
+                <div className="h-20 w-[1px] bg-[var(--glass-border)] opacity-60" />
+
+                {/* Right Column Stats */}
+                <div className="flex-1 space-y-3">
                     {[
-                        { label: 'SNR', val: `${audioMetrics.snr_db.toFixed(0)}dB`, color: 'text-cyan-400' },
-                        { label: 'RMS', val: `${(audioMetrics.rms * 100).toFixed(0)}%`, color: 'text-white/60' },
-                        { label: 'PEAK', val: `${(audioMetrics.peak * 100).toFixed(0)}%`, color: 'text-white/40' }
+                        { label: 'SNR', val: `${audioMetrics.snr_db.toFixed(0)}dB`, color: theme === 'light' ? 'text-cyan-600' : 'text-cyan-400' },
+                        { label: 'RMS', val: `${(audioMetrics.rms * 100).toFixed(0)}%`, color: theme === 'light' ? 'text-slate-600' : 'text-[var(--text-secondary)]' },
+                        { label: 'PEAK', val: `${(audioMetrics.peak * 100).toFixed(0)}%`, color: theme === 'light' ? 'text-slate-500' : 'text-[var(--text-secondary)] opacity-60' }
                     ].map((stat, i) => (
-                        <div key={i} className="flex items-center justify-between p-3 rounded-2xl glass-pill">
-                            <span className="text-[8px] text-white/20 font-black tracking-widest uppercase">{stat.label}</span>
-                            <span className={`font-mono text-[11px] font-bold ${stat.color}`}>{stat.val}</span>
+                        <div key={i} className="flex items-center justify-between">
+                            <span className={`text-[8px] font-black tracking-widest uppercase opacity-40 ${theme === 'light' ? 'text-slate-500' : 'text-white'}`}>{stat.label}</span>
+                            <span className={`font-mono text-[10px] font-black ${stat.color}`}>{stat.val}</span>
                         </div>
                     ))}
                 </div>
@@ -77,4 +91,3 @@ export default function AudioStats() {
         </div>
     )
 }
-

@@ -48,8 +48,8 @@ class SessionManager:
     SESSION_PREFIX = "session:"
     USER_SESSIONS_PREFIX = "user_sessions:"
     
-    # Default TTL (30 minutes)
-    DEFAULT_TTL = 1800
+    # Default TTL (24 hours)
+    DEFAULT_TTL = 86400
     
     def __init__(self, ttl: int = None):
         self.ttl = ttl or self.DEFAULT_TTL

@@ -57,8 +57,8 @@ export default function AgentAvatar({ state, audioLevel }: AgentAvatarProps) {
                 }
             default:
                 return {
-                    color: '#475569',
-                    glow: 'rgba(71, 85, 105, 0.2)',
+                    color: 'var(--text-secondary)',
+                    glow: 'rgba(71, 85, 105, 0.1)',
                     label: 'IDLE',
                     blur: 'blur-sm'
                 }
@@ -89,14 +89,14 @@ export default function AgentAvatar({ state, audioLevel }: AgentAvatarProps) {
                             animate={{ scale: 1.5, opacity: 0 }}
                             exit={{ opacity: 0 }}
                             transition={{ duration: 2, repeat: Infinity, ease: "easeOut" }}
-                            className="absolute inset-0 rounded-full border border-white/10"
+                            className="absolute inset-0 rounded-full border border-[var(--glass-border)] opacity-30"
                         />
                         <motion.div
                             initial={{ scale: 0.8, opacity: 0 }}
                             animate={{ scale: 2, opacity: 0 }}
                             exit={{ opacity: 0 }}
                             transition={{ duration: 3, repeat: Infinity, ease: "easeOut", delay: 0.5 }}
-                            className="absolute inset-0 rounded-full border border-white/5"
+                            className="absolute inset-0 rounded-full border border-[var(--glass-border)] opacity-20"
                         />
                     </>
                 )}
@@ -149,8 +149,8 @@ export default function AgentAvatar({ state, audioLevel }: AgentAvatarProps) {
                 animate={{ opacity: 1, y: 0 }}
                 className="absolute bottom-[-10%] flex flex-col items-center"
             >
-                <div className="h-[1px] w-12 bg-gradient-to-r from-transparent via-white/20 to-transparent mb-4" />
-                <span className="text-[10px] font-black tracking-[0.4em] text-white/40 uppercase">
+                <div className="h-[1px] w-12 bg-gradient-to-r from-transparent via-[var(--glass-border)] to-transparent mb-4" />
+                <span className="text-[10px] font-black tracking-[0.4em] text-[var(--text-secondary)] opacity-50 uppercase">
                     {config.label}
                 </span>
             </motion.div>

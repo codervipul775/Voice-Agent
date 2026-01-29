@@ -11,6 +11,13 @@ interface Caption {
   isFinal: boolean
 }
 
+export interface SessionMetadata {
+  id: string
+  title: string
+  timestamp: number
+  lastMessage?: string
+}
+
 interface AudioMetrics {
   rms: number
   peak: number
@@ -57,12 +64,23 @@ interface VoiceStore {
   interimText: string
   interimMessageId: string | null
 
+  // Theme
+  theme: 'dark' | 'light'
+
+  // Sessions History
+  sessions: SessionMetadata[]
+
   // Actions
+  toggleTheme: () => void
+  loadSessions: () => void
+  startNewSession: () => void
+  switchSession: (sessionId: string) => void
+  deleteSession: (sessionId: string) => void
   connect: (sessionId: string) => Promise<void>
   disconnect: () => void
   setState: (state: VoiceState) => void
   addCaption: (caption: Caption) => void
-  updateLastCaption: (text: string) => void
+  updateLastCaption: (text: string, isFinal?: boolean) => void
   sendAudio: (audioData: Blob) => void
   sendInterrupt: () => void  // Barge-in interrupt
   setAudioCallback: (callback: (audioData: string) => void) => void
@@ -95,6 +113,18 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
   },
   interimText: '',
   interimMessageId: null,
+  theme: typeof window !== 'undefined' && localStorage.getItem('voice-theme') === 'light' ? 'light' : 'dark',
+  sessions: typeof window !== 'undefined' ? JSON.parse(localStorage.getItem('voice_sessions_meta') || '[]') : [],
+
+  toggleTheme: () => {
+    set((state) => {
+      const newTheme = state.theme === 'dark' ? 'light' : 'dark'
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('voice-theme', newTheme)
+      }
+      return { theme: newTheme }
+    })
+  },
 
   connect: async (sessionId: string) => {
     const { connectionState, ws: existingWs } = get()
@@ -163,26 +193,18 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
                 isFinal: data.data.is_final
               }
 
-              const captions = get().captions
+              const { captions, addCaption, updateLastCaption } = get()
               const lastCaption = captions[captions.length - 1]
-
-              // Clear interim text when final user transcript arrives
               const clearInterim = data.data.is_final && data.data.speaker === 'user'
 
               if (lastCaption && lastCaption.speaker === caption.speaker && !lastCaption.isFinal) {
-                set((state) => ({
-                  captions: [...state.captions.slice(0, -1), caption],
-                  ...(clearInterim ? { interimText: '', interimMessageId: null } : {})
-                }))
-              } else if (data.data.is_final) {
-                set((state) => ({
-                  captions: [...state.captions, caption],
-                  ...(clearInterim ? { interimText: '', interimMessageId: null } : {})
-                }))
+                updateLastCaption(caption.text, caption.isFinal)
               } else {
-                set((state) => ({
-                  captions: [...state.captions, caption]
-                }))
+                addCaption(caption)
+              }
+
+              if (clearInterim) {
+                set({ interimText: '', interimMessageId: null })
               }
               break
             }
@@ -313,16 +335,69 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
   },
 
   addCaption: (caption: Caption) => {
-    set((state) => ({
-      captions: [...state.captions, caption]
-    }))
+    set((state) => {
+      const updatedCaptions = [...state.captions, caption]
+
+      if (state.sessionId) {
+        localStorage.setItem(`captions_${state.sessionId}`, JSON.stringify(updatedCaptions))
+
+        const updatedSessions = [...state.sessions]
+        const idx = updatedSessions.findIndex(s => s.id === state.sessionId)
+        if (idx >= 0) {
+          updatedSessions[idx] = { ...updatedSessions[idx], lastMessage: caption.text, timestamp: Date.now() }
+        } else {
+          updatedSessions.unshift({
+            id: state.sessionId,
+            title: `Neural Session ${new Date().toLocaleTimeString()}`,
+            timestamp: Date.now(),
+            lastMessage: caption.text
+          })
+        }
+        localStorage.setItem('voice_sessions_meta', JSON.stringify(updatedSessions))
+        return { captions: updatedCaptions, sessions: updatedSessions }
+      }
+      return { captions: updatedCaptions }
+    })
   },
 
-  updateLastCaption: (text: string) => {
+  updateLastCaption: (text: string, isFinal?: boolean) => {
     set((state) => {
       const captions = [...state.captions]
       if (captions.length > 0) {
-        captions[captions.length - 1].text = text
+        const idx = captions.length - 1
+        const last = captions[idx]
+
+        // Defensive: Don't overwrite content with empty text during streaming
+        if (!text && last.text && isFinal === undefined) {
+          return { captions: state.captions }
+        }
+
+        // Fix: Create NEW object to trigger re-render in memo components
+        const updatedCaption = {
+          ...last,
+          text: text || last.text,
+          isFinal: isFinal !== undefined ? isFinal : last.isFinal
+        }
+        captions[idx] = updatedCaption
+
+        if (state.sessionId) {
+          localStorage.setItem(`captions_${state.sessionId}`, JSON.stringify(captions))
+          const updatedSessions = [...state.sessions]
+          const sid = updatedSessions.findIndex(s => s.id === state.sessionId)
+
+          if (sid >= 0) {
+            updatedSessions[sid] = { ...updatedSessions[sid], lastMessage: updatedCaption.text, timestamp: Date.now() }
+          } else {
+            updatedSessions.unshift({
+              id: state.sessionId,
+              title: `Neural Session ${new Date().toLocaleTimeString()}`,
+              timestamp: Date.now(),
+              lastMessage: updatedCaption.text
+            })
+          }
+          localStorage.setItem('voice_sessions_meta', JSON.stringify(updatedSessions))
+          return { captions, sessions: updatedSessions }
+        }
       }
       return { captions }
     })
@@ -357,5 +432,73 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
 
   setVadStatus: (status: VadStatus) => {
     set({ vadStatus: status })
+  },
+
+  loadSessions: () => {
+    if (typeof window === 'undefined') return
+    const saved = localStorage.getItem('voice_sessions_meta')
+    if (saved) {
+      try {
+        set({ sessions: JSON.parse(saved) })
+      } catch (e) {
+        console.error('Failed to load sessions:', e)
+      }
+    }
+  },
+
+  startNewSession: () => {
+    const { disconnect, sessionId } = get()
+
+    // Save current session before switching if it has data
+    if (sessionId) {
+      const { captions, sessions } = get()
+      if (captions.length > 0) {
+        const updatedSessions = sessions.map(s =>
+          s.id === sessionId
+            ? { ...s, lastMessage: captions[captions.length - 1].text, timestamp: Date.now() }
+            : s
+        )
+        set({ sessions: updatedSessions })
+        localStorage.setItem('voice_sessions_meta', JSON.stringify(updatedSessions))
+      }
+    }
+
+    disconnect()
+    set({
+      sessionId: crypto.randomUUID(),
+      captions: [],
+      state: 'idle',
+      interimText: '',
+      interimMessageId: null
+    })
+  },
+
+  switchSession: (targetId: string) => {
+    const { disconnect } = get()
+    disconnect()
+
+    // Load captions from localStorage
+    const savedCaptions = localStorage.getItem(`captions_${targetId}`)
+    const captions = savedCaptions ? JSON.parse(savedCaptions) : []
+
+    set({
+      sessionId: targetId,
+      captions,
+      state: 'idle',
+      interimText: '',
+      interimMessageId: null
+    })
+  },
+
+  deleteSession: (id: string) => {
+    const { sessions, sessionId, startNewSession } = get()
+    const updated = sessions.filter(s => s.id !== id)
+    set({ sessions: updated })
+    localStorage.setItem('voice_sessions_meta', JSON.stringify(updated))
+    localStorage.removeItem(`captions_${id}`)
+
+    if (sessionId === id) {
+      startNewSession()
+    }
   }
 }))
