@@ -242,6 +242,9 @@ docker-compose -f docker-compose.prod.yml up -d
 
 Contributions welcome! Please read the project plan for development guidelines.
 
+
+Deployed URL: https://voice-agent-theta-six.vercel.app
+
 ## 📄 License
 
 MIT
