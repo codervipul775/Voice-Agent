@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState, useRef } from 'react';
-import { Activity, X, BarChart3, Users, Zap, Search, Clock, CheckCircle2, Sparkles, Radio } from 'lucide-react';
+import { Activity, X, BarChart3, Users, Zap, CheckCircle2, Sparkles, Radio } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useVoiceStore } from '@/store/voiceStore';
 

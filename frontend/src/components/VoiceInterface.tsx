@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useRef } from 'react'
-import { Mic, MicOff, Settings, Activity, LayoutDashboard, Radio, Cpu, Sun, Moon, Bell, User as UserIcon, ShieldCheck, Clock, ExternalLink, Plus, History, Trash2, MessageSquare } from 'lucide-react'
+import { Mic, MicOff, Settings, Activity, LayoutDashboard, Cpu, Sun, Moon, ShieldCheck, Clock, Plus, History, Trash2 } from 'lucide-react'
 import { useVoiceStore } from '@/store/voiceStore'
 import { useAudioRecorder } from '@/hooks/useAudioRecorder'
 import { useAudioPlayer } from '@/hooks/useAudioPlayer'
@@ -48,7 +48,7 @@ export default function VoiceInterface() {
     }, 1000)
 
     return () => clearInterval(timer)
-  }, [])
+  }, [loadSessions, sessionId, startNewSession])
 
   // Apply theme to body element
   useEffect(() => {
@@ -353,7 +353,7 @@ export default function VoiceInterface() {
                   </button>
                 </div>
                 <div className="flex-1 overflow-hidden">
-                  <LiveCaptions layout="compact" />
+                  <LiveCaptions />
                 </div>
               </div>
 

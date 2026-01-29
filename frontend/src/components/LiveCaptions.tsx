@@ -1,8 +1,8 @@
 'use client'
 
-import { useEffect, useRef, memo, useState } from 'react'
+import { useRef, memo, useState, useEffect } from 'react'
 import { useVoiceStore } from '@/store/voiceStore'
-import { Bot, User, Download, Sparkles, Mic, FileText, Code, Table, ChevronDown, Send } from 'lucide-react'
+import { Sparkles, Mic } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 
 interface Caption {
@@ -70,12 +70,10 @@ const InterimBubble = memo(({ text, theme }: { text: string, theme: 'dark' | 'li
 
 InterimBubble.displayName = 'InterimBubble';
 
-export default function LiveCaptions({ layout = 'default' }: { layout?: 'default' | 'compact' }) {
+export default function LiveCaptions() {
   const { captions, interimText, theme } = useVoiceStore()
   const scrollRef = useRef<HTMLDivElement>(null)
-  const [isExportOpen, setIsExportOpen] = useState(false)
   const [hasMounted, setHasMounted] = useState(false)
-  const exportRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     setHasMounted(true)
@@ -86,13 +84,6 @@ export default function LiveCaptions({ layout = 'default' }: { layout?: 'default
       scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
     }
   }, [captions.length, interimText])
-
-  const downloadFile = (content: string, type: string, extension: string) => {
-    const blob = new Blob([content], { type });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href = url; a.download = `neural-log-${Date.now()}.${extension}`; a.click();
-    URL.revokeObjectURL(url); setIsExportOpen(false);
-  }
 
   return (
     <div className="h-full flex flex-col relative overflow-hidden p-6 pt-2">

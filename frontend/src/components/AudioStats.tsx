@@ -4,7 +4,7 @@ import { useVoiceStore } from '@/store/voiceStore'
 import { motion } from 'framer-motion'
 
 export default function AudioStats() {
-    const { audioMetrics, vadStatus, isConnected, theme } = useVoiceStore()
+    const { audioMetrics, isConnected, theme } = useVoiceStore()
 
     if (!isConnected) return null
 
